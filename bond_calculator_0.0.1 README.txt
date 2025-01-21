@@ -1,0 +1,88 @@
+Bond Yield Calculator 0.0.1
+
+Overview
+
+The Bond Yield Calculator is a Python-based application that helps you calculate the yield of bonds, taking into account:
+
+-Purchase and selling dates.
+-Coupon rates.
+-Purchase and selling prices.
+-Holding periods.
+
+This tool is designed for investors and financial analysts who want to analyze bond profitability quickly and efficiently.
+
+Key Features
+-Ease of Use: A simple command-line interface (CLI) that guides the user through data entry.
+-Detailed Calculations: Computes coupon income, price difference income, and total yield.
+-Customizable Output: Results can be exported to an Excel file.
+-Error Handling: Includes robust error checks for user inputs.
+
+Requirements
+The application requires Python 3.12 or higher and the following Python libraries:
+openpyxl (for creating Excel files)
+
+To install the dependencies, run:
+pip install -r requirements.txt
+Installation and Setup
+1. Clone or Download the Repository
+git clone https://github.com/your-repo/bond-yield-calculator.git
+2. Navigate to the Project Directory
+cd bond-yield-calculator
+3. Install Dependencies
+
+Ensure you are in a virtual environment, then run:
+
+pip install -r requirements.txt
+
+Usage
+Running the Calculator
+Open a terminal or command prompt.
+Run the following command:
+python bond_calculator_0.0.1.py
+Follow the on-screen instructions to input:
+Purchase date.
+Selling date.
+Purchase amount.
+Purchase and selling prices (as percentages of face value).
+
+Coupon rate.
+Once all inputs are provided, the application displays results such as total income, yield percentage, and holding period.
+Exporting Results
+At the end of the calculation, you can choose to export the results to an Excel file.
+If no path is provided, the file is saved to your desktop.
+
+Error Handling
+If an error occurs during input or execution, the application logs it to an error_log.txt file in the same directory. Check this file for troubleshooting.
+
+Distribution
+To create an executable for Windows or macOS:
+
+Install PyInstaller:
+pip install pyinstaller
+
+Package the application:
+pyinstaller --onefile --noconsole bond_calculator.py
+The executable will be located in the dist folder.
+
+License
+This project is licensed under the MIT License.
+
+Contributing
+Fork the repository.
+
+Create your feature branch:
+git checkout -b feature/YourFeature
+
+Commit your changes:
+git commit -m 'Add YourFeature'
+
+Push to the branch:
+git push origin feature/YourFeature
+Open a pull request.
+
+Contact
+For further inquiries, please contact:
+
+Contacts: https://t.me/kunigunda_production
+
+GitHub Issues: https://github.com/your-repo/bond-yield-calculator/issues

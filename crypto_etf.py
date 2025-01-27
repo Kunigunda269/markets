@@ -16,6 +16,18 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
+# Конфигурация для сохранения данных
+CONFIG = {
+    "max_requests_per_minute": 30,
+    "batch_size": 50,
+    "input_file": r"C:\Users\Main\PycharmProjects\crypto etf\category_tokens_details_2.xlsx",
+    "output_folder": r"C:\Users\Main\PycharmProjects\crypto etf\results",
+    "save_path": r"C:\Users\Main\PycharmProjects\crypto etf"
+}
+
+# Создаем директории если они не существуют
+os.makedirs(CONFIG["output_folder"], exist_ok=True)
+os.makedirs(CONFIG["save_path"], exist_ok=True)
 
 # Конфигурация API
 API_KEY = "831812bd-1186-43d4-b0d3-b71f0d61074e"
@@ -33,7 +45,8 @@ ANALYSIS_DATES = [
     ("2024-12-29", "2024-12-30"),
     ("2025-01-05", "2025-01-06"),
     ("2025-01-12", "2025-01-13"),
-    ("2025-01-18", "2025-01-19")
+    ("2025-01-18", "2025-01-19"),
+    ("2025-01-26", "2025-01-27")
 ]
 
 
@@ -124,34 +137,201 @@ class DataProcessor:
     """Обработка и анализ данных по категориям"""
 
     def __init__(self):
-        # Фиксированные пути к файлам
-        self.category_file = r"C:\Users\Main\PycharmProjects\crypto etf\category_tokens_details_2.xlsx"
-        self.result_files = [
-            r"C:\Users\Main\PycharmProjects\crypto etf\result_2024-12-08_to_2024-12-09.xlsx",
-            r"C:\Users\Main\PycharmProjects\crypto etf\result_2024-12-15_to_2024-12-16.xlsx",
-            r"C:\Users\Main\PycharmProjects\crypto etf\result_2024-12-22_to_2024-12-23.xlsx",
-            r"C:\Users\Main\PycharmProjects\crypto etf\result_2024-12-29_to_2024-12-30.xlsx",
-            r"C:\Users\Main\PycharmProjects\crypto etf\result_2025-01-05_to_2025-01-06.xlsx",
-            r"C:\Users\Main\PycharmProjects\crypto etf\result_2025-01-12_to_2025-01-13.xlsx",
-            r"C:\Users\Main\PycharmProjects\crypto etf\result_2025-01-18_to_2025-01-19.xlsx"
-        ]
+        # Базовая директория
+        self.base_dir = r"C:\Users\Main\PycharmProjects\crypto etf"
+        self.category_file = os.path.join(self.base_dir, "category_tokens_details_2.xlsx")
+
+        # Динамическое получение списка result файлов
+        self.result_files = self._get_result_files()
         self.categories_df = None
         self._load_categories()
+
+    def _get_result_files(self):
+        """Динамическое получение списка result файлов"""
+        try:
+            files = []
+            pattern = r"result_\d{4}-\d{2}-\d{2}_to_\d{4}-\d{2}-\d{2}\.xlsx"
+
+            # Сканируем директорию на наличие файлов result
+            for file in os.listdir(self.base_dir):
+                if re.match(pattern, file):
+                    full_path = os.path.join(self.base_dir, file)
+                    files.append(full_path)
+
+            # Сортируем файлы по дате
+            files.sort(key=lambda x: re.findall(r'\d{4}-\d{2}-\d{2}', x)[0])
+
+            if not files:
+                logging.warning("Файлы result не найдены")
+            else:
+                logging.info(f"Найдено {len(files)} файлов result")
+
+            return files
+
+        except Exception as e:
+            logging.error(f"Ошибка при поиске result файлов: {e}")
+            return []
 
     def _load_categories(self):
         """Загрузка данных категорий"""
         try:
+            if not os.path.exists(self.category_file):
+                raise FileNotFoundError(f"Файл категорий не найден: {self.category_file}")
+
             self.categories_df = pd.read_excel(self.category_file)
             self.categories_df = self.categories_df.dropna(subset=['Symbol', 'Category'])
+
             logging.info(
-                f"Загружено {len(self.categories_df)} токенов из {len(self.categories_df['Category'].unique())} категорий")
+                f"Загружено {len(self.categories_df)} токенов из {len(self.categories_df['Category'].unique())} категорий"
+            )
         except Exception as e:
             logging.error(f"Ошибка загрузки категорий: {e}")
             raise
 
+    def refresh_result_files(self):
+        """Обновление списка result файлов"""
+        self.result_files = self._get_result_files()
+        return len(self.result_files)
+
+    async def process_tokens(self, input_file, output_folder, time_start, time_end):
+        try:
+            # Проверяем валидность дат
+            current_date = datetime.now().date()
+            end_date = datetime.strptime(time_end[:10], '%Y-%m-%d').date()
+
+            if end_date > current_date + timedelta(days=1):  # Разрешаем текущий день
+                logging.warning(f"Дата {time_end[:10]} находится в будущем. Пропускаем период.")
+                return None
+
+            # Проверяем существование файлов и директорий
+            if not os.path.exists(input_file):
+                logging.error(f"Входной файл не найден: {input_file}")
+                return None
+
+            os.makedirs(output_folder, exist_ok=True)
+
+            # Читаем и подготавливаем данные
+            data = pd.read_excel(input_file)
+            data = data.dropna(subset=["Id", "Symbol"])
+            data["Id"] = data["Id"].astype(int)
+            tokens = data[["Id", "Symbol"]].to_dict(orient="records")
+
+            if not tokens:
+                logging.warning("Нет данных для обработки")
+                return None
+
+            logging.info(f"Загружено {len(tokens)} токенов для обработки")
+
+            # Создаем SSL контекст
+            ssl_context = ssl.create_default_context()
+            ssl_context.check_hostname = False
+            ssl_context.verify_mode = ssl.CERT_NONE
+
+            processed_tokens = {}
+            all_results = []
+
+            async def fetch_batch_data(session, batch, time_start, time_end, processed_tokens):
+                """Получение данных для пакета токенов"""
+                results = []
+
+                for token in batch:
+                    try:
+                        # Пропускаем уже обработанные токены
+                        if token["Id"] in processed_tokens:
+                            continue
+
+                        endpoint = f"{BASE_URL}/cryptocurrency/quotes/historical"
+                        params = {
+                            "id": str(token["Id"]),
+                            "time_start": f"{time_start}T00:00:00Z",
+                            "time_end": f"{time_end}T23:59:59Z",
+                            "interval": "1d",
+                            "convert": "USD"
+                        }
+
+                        async with session.get(endpoint, headers=HEADERS, params=params) as response:
+                            if response.status == 200:
+                                data = await response.json()
+                                if data.get("data", {}).get("quotes"):
+                                    quotes = data["data"]["quotes"]
+                                    for quote in quotes:
+                                        usd_data = quote["quote"]["USD"]
+                                        results.append({
+                                            "Id": token["Id"],
+                                            "Symbol": token["Symbol"],
+                                            "Date": quote["timestamp"][:10],
+                                            "Price (USD)": usd_data["price"],
+                                            "Market Cap": usd_data["market_cap"],
+                                            "Volume": usd_data.get("volume_24h", 0)
+                                        })
+                                    processed_tokens[token["Id"]] = True
+                                    logging.info(f"Успешно получены данные для токена {token['Symbol']}")
+                                else:
+                                    logging.warning(f"Нет данных для токена {token['Symbol']}")
+                            else:
+                                logging.error(f"Ошибка API {response.status} для токена {token['Symbol']}")
+
+                        # Задержка между запросами для соблюдения лимитов API
+                        await asyncio.sleep(60 / CONFIG["max_requests_per_minute"])
+
+                    except Exception as e:
+                        logging.error(f"Ошибка при получении данных для токена {token['Symbol']}: {e}")
+                        continue
+
+                return results
+
+            # Обработка токенов пакетами
+            async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(ssl=ssl_context)) as session:
+                for i in range(0, len(tokens), CONFIG["batch_size"]):
+                    batch = tokens[i:i + CONFIG["batch_size"]]
+                    logging.info(f"Обработка пакета {i // CONFIG['batch_size'] + 1}...")
+
+                    batch_results = await fetch_batch_data(session, batch, time_start, time_end, processed_tokens)
+                    if batch_results:
+                        all_results.extend(batch_results)
+
+                    logging.info(f"Пакет {i // CONFIG['batch_size'] + 1} обработан")
+
+            if not all_results:
+                logging.warning("Нет результатов для сохранения")
+                return None
+
+            # Сохранение результатов
+            output_file = os.path.join(
+                output_folder,
+                f"result_{time_start[:10]}_to_{time_end[:10]}.xlsx"
+            )
+
+            try:
+                df = pd.DataFrame(all_results)
+                df.to_excel(output_file, index=False)
+
+                if os.path.exists(output_file):
+                    file_size = os.path.getsize(output_file)
+                    logging.info(f"Результаты сохранены в {output_file} (размер: {file_size:,} байт)")
+                    return output_file
+                else:
+                    logging.error("Не удалось создать файл")
+                    return None
+
+            except Exception as e:
+                logging.error(f"Ошибка при сохранении файла: {e}")
+                return None
+
+        except Exception as e:
+            logging.error(f"Ошибка при обработке токенов: {e}")
+            return None
+
     def process_data(self):
         """Обработка данных по категориям"""
         try:
+            # Обновляем список файлов
+            self.refresh_result_files()
+
+            if not self.result_files:
+                logging.error("Нет файлов для обработки")
+                return pd.DataFrame()
+
             results = []
             categories = self.categories_df['Category'].unique()
 
@@ -160,21 +340,24 @@ class DataProcessor:
                     # Получаем дату из имени файла
                     date_match = re.search(r'result_(\d{4}-\d{2}-\d{2})', result_file)
                     if not date_match:
+                        logging.warning(f"Некорректное имя файла: {result_file}")
                         continue
+
                     date = date_match.group(1)
 
-                    # Загружаем данные результатов
+                    if not os.path.exists(result_file):
+                        logging.warning(f"Файл не найден: {result_file}")
+                        continue
+
+                    # Загружаем и обрабатываем данные
                     df_results = pd.read_excel(result_file)
                     logging.info(f"Обработка файла {result_file}: {len(df_results)} записей")
 
-                    # Обрабатываем каждую категорию
                     for category in categories:
-                        # Получаем токены для категории
                         category_tokens = self.categories_df[
                             self.categories_df['Category'] == category
                             ]['Symbol'].tolist()
 
-                        # Фильтруем данные по токенам категории
                         category_data = df_results[
                             df_results['Symbol'].isin(category_tokens)
                         ]
@@ -193,12 +376,16 @@ class DataProcessor:
                     logging.error(f"Ошибка обработки файла {result_file}: {e}")
                     continue
 
-            # Создаем DataFrame с результатами
+            # Создаем и сохраняем результаты
             results_df = pd.DataFrame(results)
 
-            # Сохраняем промежуточные результаты для проверки
+            if results_df.empty:
+                logging.warning("Нет данных после обработки")
+                return pd.DataFrame()
+
+            # Сохраняем отладочные данные
             timestamp = datetime.now().strftime('%Y%m%d_%H%M')
-            debug_filename = f'categories_debug_{timestamp}.xlsx'
+            debug_filename = os.path.join(self.base_dir, f'categories_debug_{timestamp}.xlsx')
             results_df.to_excel(debug_filename, index=False)
             logging.info(f"Отладочные данные сохранены в {debug_filename}")
 
@@ -211,14 +398,18 @@ class DataProcessor:
     def save_results(self, df: pd.DataFrame, token_symbol: str):
         """Сохранение результатов анализа"""
         try:
+            if df.empty:
+                logging.error("Нет данных для сохранения результатов")
+                return None
+
             timestamp = datetime.now().strftime('%Y%m%d_%H%M')
-            filename = f'category_analysis_{token_symbol}_{timestamp}.xlsx'
+            filename = os.path.join(self.base_dir, f'category_analysis_{token_symbol}_{timestamp}.xlsx')
 
             with pd.ExcelWriter(filename) as writer:
-                # Сохраняем основные данные
+                # Основные данные
                 df.to_excel(writer, sheet_name='Category Analysis', index=False)
 
-                # Добавляем статистику
+                # Статистика
                 stats_df = df.groupby('Category').agg({
                     'TokenCount': 'mean',
                     'TotalTokens': 'first',
@@ -228,8 +419,13 @@ class DataProcessor:
 
                 stats_df.to_excel(writer, sheet_name='Statistics')
 
-            logging.info(f"Результаты анализа сохранены в {filename}")
-            return filename
+            if os.path.exists(filename):
+                file_size = os.path.getsize(filename)
+                logging.info(f"Результаты анализа сохранены в {filename} (размер: {file_size} байт)")
+                return filename
+            else:
+                logging.error("Не удалось создать файл результатов")
+                return None
 
         except Exception as e:
             logging.error(f"Ошибка при сохранении результатов: {e}")
@@ -476,6 +672,15 @@ class Visualizer:
 def save_token_data(token_df: pd.DataFrame, token_symbol: str) -> str:
     """Сохранение данных токена в Excel"""
     try:
+        # Проверяем наличие данных
+        if token_df.empty:
+            logging.error("Нет данных для сохранения")
+            return None
+
+        # Создаем директорию, если её нет
+        save_dir = r"C:\Users\Main\PycharmProjects\crypto etf"
+        os.makedirs(save_dir, exist_ok=True)
+
         # Форматируем DataFrame
         formatted_df = token_df.copy()
         formatted_df['date'] = pd.to_datetime(formatted_df['date']).dt.strftime('%Y-%m-%d')
@@ -487,13 +692,25 @@ def save_token_data(token_df: pd.DataFrame, token_symbol: str) -> str:
 
         # Создаем имя файла с временной меткой
         timestamp = datetime.now().strftime('%Y%m%d_%H%M')
-        filename = os.path.join(r"C:\Users\Main\PycharmProjects\crypto etf",
-                                f'token_data_{token_symbol}_{timestamp}.xlsx')
+        filename = os.path.join(save_dir, f'token_data_{token_symbol}_{timestamp}.xlsx')
 
-        # Сохраняем в Excel
-        formatted_df.to_excel(filename, index=False)
-        logging.info(f"Данные токена сохранены в {filename}")
-        return filename
+        # Сохраняем в Excel с обработкой ошибок
+        try:
+            with pd.ExcelWriter(filename, engine='openpyxl') as writer:
+                formatted_df.to_excel(writer, index=False)
+
+            if os.path.exists(filename):
+                file_size = os.path.getsize(filename)
+                logging.info(f"Данные токена сохранены в {filename} (размер: {file_size} байт)")
+                return filename
+            else:
+                logging.error("Файл не был создан после сохранения")
+                return None
+
+        except PermissionError:
+            logging.error(f"Ошибка доступа к файлу {filename}")
+            return None
+
     except Exception as e:
         logging.error(f"Ошибка при сохранении данных токена: {e}")
         return None
@@ -502,19 +719,40 @@ def save_token_data(token_df: pd.DataFrame, token_symbol: str) -> str:
 def save_categories_data(categories_df: pd.DataFrame, token_symbol: str) -> str:
     """Сохранение данных категорий в Excel"""
     try:
+        # Проверяем наличие данных
+        if categories_df.empty:
+            logging.error("Нет данных категорий для сохранения")
+            return None
+
+        # Создаем директорию, если её нет
+        save_dir = r"C:\Users\Main\PycharmProjects\crypto etf"
+        os.makedirs(save_dir, exist_ok=True)
+
         # Форматируем DataFrame
         formatted_df = categories_df.copy()
         formatted_df['Date'] = pd.to_datetime(formatted_df['Date']).dt.strftime('%Y-%m-%d')
 
         # Создаем имя файла с временной меткой
         timestamp = datetime.now().strftime('%Y%m%d_%H%M')
-        filename = os.path.join(r"C:\Users\Main\PycharmProjects\crypto etf",
-                                f'categories_data_{token_symbol}_{timestamp}.xlsx')
+        filename = os.path.join(save_dir, f'categories_data_{token_symbol}_{timestamp}.xlsx')
 
-        # Сохраняем в Excel
-        formatted_df.to_excel(filename, index=False)
-        logging.info(f"Данные категорий сохранены в {filename}")
-        return filename
+        # Сохраняем в Excel с обработкой ошибок
+        try:
+            with pd.ExcelWriter(filename, engine='openpyxl') as writer:
+                formatted_df.to_excel(writer, index=False)
+
+            if os.path.exists(filename):
+                file_size = os.path.getsize(filename)
+                logging.info(f"Данные категорий сохранены в {filename} (размер: {file_size} байт)")
+                return filename
+            else:
+                logging.error("Файл не был создан после сохранения")
+                return None
+
+        except PermissionError:
+            logging.error(f"Ошибка доступа к файлу {filename}")
+            return None
+
     except Exception as e:
         logging.error(f"Ошибка при сохранении данных категорий: {e}")
         return None
@@ -529,7 +767,7 @@ async def main():
     try:
         # === Тестовый запрос ===
         print("\n=== Тестовый запрос ===")
-        query = input("Введите ID или тикер токена: ").strip()
+        query = input("Введите тикер токена: ").strip()
 
         # Получаем информацию о токене
         token_info = await api_handler.get_token_info(query)

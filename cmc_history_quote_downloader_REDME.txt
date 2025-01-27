@@ -1,0 +1,111 @@
+# Crypto Data Saver
+
+A Python script for fetching and saving historical cryptocurrency data from CoinMarketCap API.
+
+## Features
+
+- Asynchronous API requests
+- Rate limiting for API calls
+- Batch processing of tokens
+- Excel file input/output
+- Comprehensive logging system
+- Data caching for optimization
+
+## Prerequisites
+
+- Python 3.8+
+- CoinMarketCap API key
+- Windows OS (for default file paths)
+
+## Installation
+
+1. Clone the repository:
+bash
+git clone <repository-url>
+cd crypto-data-saver
+
+2. Install dependencies:
+bash
+pip install -r requirements.txt
+
+3. Configure the settings:
+   - Update `API_KEY` with your CoinMarketCap API key
+   - Adjust paths in `CONFIG` dictionary:
+     - `input_file`: Path to Excel file with token details
+     - `output_folder`: Path for saving results
+
+## Configuration
+python
+CONFIG = {
+"max_requests_per_minute": 30, # API rate limit
+"batch_size": 50, # Tokens per batch
+"input_file": "path/to/input.xlsx",
+"output_folder": "path/to/output"
+}
+
+## Input File Format
+
+Required Excel file structure:
+- Column `Id`: CoinMarketCap token ID
+- Column `Symbol`: Token symbol
+
+## Usage
+
+1. Run the script:
+bash
+python main.py
+
+2. Follow the prompts:
+   - Enter token ID for test request
+   - Input test date range (YYYY-MM-DD)
+   - Input processing date range (YYYY-MM-DD)
+
+3. Output:
+   - Excel file: `result_<start-date>_to_<end-date>.xlsx`
+   - Log file: `crypto_combined.log`
+
+## Output Format
+
+Excel file contains:
+- ID: Token ID
+- Symbol: Token symbol
+- Price (USD): Closing price
+- Market Cap: Market capitalization
+
+## Error Handling
+
+- Comprehensive error logging
+- Rate limit handling
+- API error recovery
+- Data validation
+
+## Logging
+
+All operations are logged to:
+- Console output
+- `crypto_combined.log` file
+
+## Rate Limiting
+
+- Configurable requests per minute
+- Automatic rate limit handling
+- Waiting periods for API limits
+
+## Notes
+
+- API rate limits depend on your CoinMarketCap subscription
+- Large token lists may require extended processing time
+- Ensure proper file permissions in output directory
+
+
+## Author
+
+https://t.me/kunigunda_production
+
+## Acknowledgments
+
+- CoinMarketCap API
+- Python async community
+
+
+

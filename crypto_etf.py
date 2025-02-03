@@ -30,7 +30,7 @@ os.makedirs(CONFIG["output_folder"], exist_ok=True)
 os.makedirs(CONFIG["save_path"], exist_ok=True)
 
 # Конфигурация API
-API_KEY = "831812bd-1186-43d4-b0d3-b71f0d61074e"
+API_KEY = "123"
 BASE_URL = "https://pro-api.coinmarketcap.com/v2"
 HEADERS = {
     "X-CMC_PRO_API_KEY": API_KEY,

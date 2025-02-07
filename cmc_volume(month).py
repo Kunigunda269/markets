@@ -12,7 +12,7 @@ from collections import OrderedDict
 from typing import Dict, List, Optional
 
 # === Конфигурация ===
-API_KEY: str = "831812bd-1186-43d4-b0d3-b71f0d61074e"
+API_KEY: str = "123"
 HEADERS: Dict[str, str] = {"X-CMC_PRO_API_KEY": API_KEY}
 BASE_URL_HISTORICAL: str = "https://pro-api.coinmarketcap.com/v2/cryptocurrency/quotes/historical"
 OUTPUT_FOLDER: str = r"C:\Users\Main\Pitonio\crypto etf"

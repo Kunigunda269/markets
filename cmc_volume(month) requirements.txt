@@ -1,0 +1,14 @@
+Requirements
+
+To run this script, you need to have the following Python packages installed:
+
+pip install -r requirements.txt
+
+requirements.txt
+
+aiohttp
+pandas
+plotly
+
+Ensure you are using Python 3.7 or later.
+

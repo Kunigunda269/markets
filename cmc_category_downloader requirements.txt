@@ -1,0 +1,14 @@
+Requirements
+Python Version: 3.6 or later
+Dependencies:
+requests: For making HTTP requests to the CoinMarketCap API.
+pandas: For handling and storing the data in Excel format.
+openpyxl: Required by pandas to write to .xlsx files.
+json: For caching API responses.
+logging: For logging application events and errors.
+You can install the required dependencies by running:
+
+bash
+Копировать
+Редактировать
+pip install requests pandas openpyxl

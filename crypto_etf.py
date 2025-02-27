@@ -20,9 +20,9 @@ logging.basicConfig(
 CONFIG = {
     "max_requests_per_minute": 30,
     "batch_size": 50,
-    "input_file": r"C:\Users\Main\PycharmProjects\crypto etf\category_tokens_details_2.xlsx",
-    "output_folder": r"C:\Users\Main\PycharmProjects\crypto etf\results",
-    "save_path": r"C:\Users\Main\PycharmProjects\crypto etf"
+    "input_file": r"C:\Users\Main\Pitonio\crypto_etf\category_downloader.xlsx",
+    "output_folder": r"C:\Users\Main\Pitonio\crypto_etf\results",
+    "save_path": r"C:\Users\Main\Pitonio\crypto_etf"
 }
 
 # Создаем директории если они не существуют
@@ -46,7 +46,11 @@ ANALYSIS_DATES = [
     ("2025-01-05", "2025-01-06"),
     ("2025-01-12", "2025-01-13"),
     ("2025-01-18", "2025-01-19"),
-    ("2025-01-26", "2025-01-27")
+    ("2025-01-26", "2025-01-27"),
+    ("2025-02-01", "2025-02-02"),
+    ("2025-02-08", "2025-02-09"),
+    ("2025-02-15", "2025-02-16"),
+    ("2025-02-21", "2025-02-22")
 ]
 
 
@@ -138,8 +142,8 @@ class DataProcessor:
 
     def __init__(self):
         # Базовая директория
-        self.base_dir = r"C:\Users\Main\PycharmProjects\crypto etf"
-        self.category_file = os.path.join(self.base_dir, "category_tokens_details_2.xlsx")
+        self.base_dir = r"C:\Users\Main\Pitonio\crypto_etf"
+        self.category_file = os.path.join(self.base_dir, "category_downloader.xlsx")
 
         # Динамическое получение списка result файлов
         self.result_files = self._get_result_files()
@@ -178,7 +182,14 @@ class DataProcessor:
             if not os.path.exists(self.category_file):
                 raise FileNotFoundError(f"Файл категорий не найден: {self.category_file}")
 
-            self.categories_df = pd.read_excel(self.category_file)
+            # Читаем Excel файл, используя номера столбцов
+            # Предполагаем, что Symbol находится в столбце 1 (B), а категории в столбце 3 (D)
+            self.categories_df = pd.read_excel(
+                self.category_file,
+                usecols=[1, 3],  # B и D столбцы (0-based индексация)
+                names=['Symbol', 'Category']  # Задаем имена столбцов
+            )
+
             self.categories_df = self.categories_df.dropna(subset=['Symbol', 'Category'])
 
             logging.info(
@@ -465,8 +476,8 @@ class Visualizer:
             mode='lines+markers',
             line=dict(color='red', width=3),
             marker=dict(size=8),
-            yaxis='y',  # Привязка к левой оси
-            visible=True,  # Всегда видимый
+            yaxis='y',
+            visible=True,
             hovertemplate=(
                     f"<b>{token_symbol}</b><br>" +
                     "Дата: %{x}<br>" +
@@ -476,8 +487,10 @@ class Visualizer:
             )
         ))
 
+        # Получаем отсортированный список категорий
+        categories = sorted(categories_df['Category'].unique())
+
         # Добавляем линии категорий (привязаны к правой оси Y)
-        categories = categories_df['Category'].unique()
         for idx, category in enumerate(categories):
             category_data = categories_df[categories_df['Category'] == category]
 
@@ -569,7 +582,7 @@ class Visualizer:
         """Сохранение графика в HTML файл"""
         try:
             # Обновленный путь для сохранения
-            save_path = r"C:\Users\Main\PycharmProjects\crypto etf"
+            save_path = r"C:\Users\Main\Pitonio\crypto_etf"
             timestamp = datetime.now().strftime('%Y%m%d_%H%M')
             filename = os.path.join(save_path, f'analysis_{token_symbol}_{timestamp}.html')
 
@@ -672,13 +685,12 @@ class Visualizer:
 def save_token_data(token_df: pd.DataFrame, token_symbol: str) -> str:
     """Сохранение данных токена в Excel"""
     try:
-        # Проверяем наличие данных
         if token_df.empty:
             logging.error("Нет данных для сохранения")
             return None
 
-        # Создаем директорию, если её нет
-        save_dir = r"C:\Users\Main\PycharmProjects\crypto etf"
+        # Используем тот же базовый путь
+        save_dir = r"C:\Users\Main\Pitonio\crypto_etf"
         os.makedirs(save_dir, exist_ok=True)
 
         # Форматируем DataFrame
@@ -725,7 +737,7 @@ def save_categories_data(categories_df: pd.DataFrame, token_symbol: str) -> str:
             return None
 
         # Создаем директорию, если её нет
-        save_dir = r"C:\Users\Main\PycharmProjects\crypto etf"
+        save_dir = r"C:\Users\Main\Pitonio\crypto_etf"
         os.makedirs(save_dir, exist_ok=True)
 
         # Форматируем DataFrame

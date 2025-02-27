@@ -15,7 +15,7 @@ if sys.platform == "win32":
 # Настройка логирования
 logging.basicConfig(level=logging.INFO)
 
-HEADERS = {'X-CMC_PRO_API_KEY': "831812bd-1186-43d4-b0d3-b71f0d61074e"}
+HEADERS = {'X-CMC_PRO_API_KEY': "123"}
 
 
 def price_change_percentage(open_price, close_price):

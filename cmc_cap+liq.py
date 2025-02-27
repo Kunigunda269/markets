@@ -18,11 +18,14 @@ API_KEY = "123"
 HEADERS = {"X-CMC_PRO_API_KEY": API_KEY}
 BASE_URL_METADATA = "https://pro-api.coinmarketcap.com/v2/cryptocurrency/info"
 BASE_URL_HISTORICAL = "https://pro-api.coinmarketcap.com/v2/cryptocurrency/quotes/historical"
-OUTPUT_FOLDER = r"C:\Users\Main\Pitonio\crypto etf"
+OUTPUT_FOLDER = r"C:\Users\Main\Pitonio\crypto_etf"
+
+# Создаем директорию, если она не существует
+os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 
 # === Логирование ===
 logging.basicConfig(
-    filename=os.path.join(OUTPUT_FOLDER, "crypto_combined.log"),
+    filename=os.path.join(OUTPUT_FOLDER.replace(" ", "_"), "crypto_combined.log"),
     level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(message)s",
 )
@@ -146,7 +149,7 @@ def validate_and_adjust_dates(start_date_str, end_date_str):
         return None
 
 
-def create_dual_axis_plot(dates, liquidity, market_cap):
+def create_dual_axis_plot(dates, liquidity, market_cap, symbol, start_date, end_date):
     """Создание графика с двумя осями Y."""
     fig = go.Figure()
 
@@ -155,9 +158,11 @@ def create_dual_axis_plot(dates, liquidity, market_cap):
         x=dates,
         y=market_cap,
         mode='lines',
-        name='Капитализация',
+        name='Market Cap',
         line=dict(color='blue'),
-        yaxis='y1'
+        yaxis='y1',
+        hovertemplate='<b>Date</b>: %{x}<br>' +
+                      '<b>Market Cap</b>: $%{y:,.2f}<br><extra></extra>'
     ))
 
     # Добавление графика ликвидности (правая ось)
@@ -165,27 +170,30 @@ def create_dual_axis_plot(dates, liquidity, market_cap):
         x=dates,
         y=liquidity,
         mode='lines',
-        name='Ликвидность (%)',
+        name='Liquidity',
         line=dict(color='red'),
-        yaxis='y2'
+        yaxis='y2',
+        hovertemplate='<b>Date</b>: %{x}<br>' +
+                      '<b>Liquidity</b>: %{y:.2f}%<br><extra></extra>'
     ))
 
     # Настройка макета с двумя осями Y
     fig.update_layout(
-        title='Капитализация и Ликвидность',
-        xaxis_title='Дата',
+        title=f'Capitalization and Liquidity {symbol} from {start_date} to {end_date}',
+        xaxis_title='Date',
         yaxis1=dict(
-            title='Капитализация (USD)',
+            title='Market Cap (USD)',
             side='left',
             color='blue'
         ),
         yaxis2=dict(
-            title='Ликвидность (%)',
+            title='Liquidity (%)',
             side='right',
             color='red',
             overlaying='y1',
             anchor='x'
-        )
+        ),
+        hovermode='x unified'
     )
 
     return fig
@@ -244,8 +252,10 @@ async def main():
             liquidity.append(liquidity_percent)
             market_cap.append(market_cap_value)
 
-        # Создание графика
-        fig = create_dual_axis_plot(dates, liquidity, market_cap)
+        # Создание графика с передачей дополнительных параметров
+        start_date_display = start_date_str
+        end_date_display = end_date_str
+        fig = create_dual_axis_plot(dates, liquidity, market_cap, symbol, start_date_display, end_date_display)
 
         # Сохранение интерактивного HTML
         html_file_path = os.path.join(OUTPUT_FOLDER, f'{symbol}_liquidity_market_cap.html')

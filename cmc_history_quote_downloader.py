@@ -17,9 +17,15 @@ BASE_URL_HISTORICAL = "https://pro-api.coinmarketcap.com/v2/cryptocurrency/quote
 CONFIG = {
     "max_requests_per_minute": 30,              # Лимит запросов в минуту
     "batch_size": 50,                           # Количество токенов в пакете
-    "input_file": r"C:\\Users\\User\\OneDrive\\Рабочий стол\\category_tokens_details_2.xlsx",
-    "output_folder": r"C:\\Users\\User\\OneDrive\\Рабочий стол",
+    "input_file": r"C:\Users\Main\Pitonio\crypto_etf\category_downloader.xlsx",  # Используйте crypto_etf вместо "crypto etf"
+    "output_folder": r"C:\Users\Main\Pitonio\crypto_etf",
 }
+
+# Проверка существования файла
+if not os.path.exists(CONFIG["input_file"]):
+    print(f"ОШИБКА: Файл {CONFIG['input_file']} не найден!")
+    print("Убедитесь, что файл category_downloader.xlsx находится в той же папке, что и скрипт.")
+    sys.exit(1)
 
 # === Логирование ===
 logging.basicConfig(
@@ -52,41 +58,57 @@ class RateLimiter:
 rate_limiter = RateLimiter(CONFIG["max_requests_per_minute"])
 
 
-async def fetch_historical_data(session, query_param, query_value, time_start, time_end):
-    """
-    Получение исторических данных (цена закрытия и капитализация) для одного токена.
-    """
-    log_and_print(f"[INFO] Начат запрос данных для {query_param}={query_value}")
+def price_change_percentage(open_price, close_price):
+    """Вычисление процентного изменения цены."""
+    if open_price == 0:
+        return 0
+    return ((close_price - open_price) / open_price) * 100
+
+
+async def fetch_historical_data(session, crypto_id, time_start, time_end):
+    """Получение исторических данных"""
+    url = BASE_URL_HISTORICAL
     params = {
-        query_param: query_value,
+        "id": crypto_id,
         "time_start": time_start,
         "time_end": time_end,
         "interval": "daily",
-        "convert": "USD",
+        "convert": "USD"
     }
+
     try:
-        async with session.get(BASE_URL_HISTORICAL, headers=HEADERS, params=params) as response:
+        async with session.get(url, headers=HEADERS, params=params) as response:
             if response.status == 200:
                 data = await response.json()
-                quotes = data.get("data", {}).get("quotes", [])
+                quotes = data.get('data', {}).get('quotes', [])
+                
                 if quotes:
-                    usd_data = quotes[0].get("quote", {}).get("USD", {})
-                    log_and_print(f"[INFO] Данные успешно получены для {query_param}={query_value}")
+                    start_data = quotes[0]['quote']['USD']
+                    end_data = quotes[-1]['quote']['USD']
+                    
+                    log_and_print("Данные за период:")
+                    log_and_print(f"Цена начала: {start_data['price']:.8f} USD")
+                    log_and_print(f"Капитализация начала: {start_data['market_cap']:.2f} USD")
+                    log_and_print(f"Цена конца: {end_data['price']:.8f} USD")
+                    log_and_print(f"Капитализация конца: {end_data['market_cap']:.2f} USD")
+                    
                     return {
-                        "price": usd_data.get("price", 0),
-                        "market_cap": usd_data.get("market_cap", 0),
+                        'start_price': start_data['price'],
+                        'start_mcap': start_data['market_cap'],
+                        'end_price': end_data['price'],
+                        'end_mcap': end_data['market_cap']
                     }
                 else:
-                    log_and_print(f"[WARNING] Нет данных для {query_value} ({query_param})", "warning")
+                    log_and_print(f"Нет данных для ID: {crypto_id} в указанном диапазоне дат.", level="warning")
             elif response.status == 429:
-                log_and_print(f"[ERROR] Лимит запросов превышен для {query_param}={query_value}. Ожидание...")
-                await asyncio.sleep(60)  # Ожидание перед повтором
-                return await fetch_historical_data(session, query_param, query_value, time_start, time_end)
+                log_and_print(f"Превышен лимит запросов для ID: {crypto_id}. Ожидание 60 секунд...", level="error")
+                await asyncio.sleep(66)
+                return await fetch_historical_data(session, crypto_id, time_start, time_end)
             else:
-                log_and_print(f"[ERROR] HTTP {response.status} для {query_param}={query_value}", "error")
+                log_and_print(f"Ошибка HTTP {response.status} для ID: {crypto_id}", level="error")
     except Exception as e:
-        log_and_print(f"[ERROR] Ошибка при запросе {query_param}={query_value}: {e}", "error")
-    return {}
+        log_and_print(f"Ошибка при получении данных для ID: {crypto_id}: {str(e)}", level="error")
+    return None
 
 
 async def fetch_batch_data(session, tokens, time_start, time_end, processed_tokens):
@@ -105,12 +127,12 @@ async def fetch_batch_data(session, tokens, time_start, time_end, processed_toke
         else:
             # Выполняем запрос для нового токена
             log_and_print(f"[INFO] Запрос данных для токена {token_id}...")
-            data = await fetch_historical_data(session, "id", token_id, time_start, time_end)
+            data = await fetch_historical_data(session, token_id, time_start, time_end)
             result = {
                 "ID": token_id,
                 "Symbol": token["Symbol"],
-                "Price (USD)": data.get("price", 0),
-                "Market Cap": data.get("market_cap", 0),
+                "Price (USD)": data['end_price'],
+                "Market Cap (USD)": data['end_mcap']
             }
             results.append(result)
             processed_tokens[token_id] = result  # Сохраняем в кэш
@@ -149,14 +171,14 @@ async def process_tokens(input_file, output_folder, time_start, time_end):
 async def main():
     """Главная функция."""
     log_and_print("[INFO] Начало работы программы...")
+    
     test_id = int(input("Введите ID токена для тестового запроса: ").strip())
     test_start = input("Введите начальную дату для теста (YYYY-MM-DD): ").strip() + "T00:00:00Z"
     test_end = input("Введите конечную дату для теста (YYYY-MM-DD): ").strip() + "T23:59:59Z"
 
     async with aiohttp.ClientSession() as session:
         log_and_print("[INFO] Выполняем тестовый запрос...")
-        test_result = await fetch_historical_data(session, "id", test_id, test_start, test_end)
-        log_and_print(f"[INFO] Тестовый запрос для ID {test_id}: Результаты: {test_result}")
+        await fetch_historical_data(session, test_id, test_start, test_end)
 
     log_and_print("[INFO] Начало обработки основного списка токенов...")
     process_start = input("Введите начальную дату для обработки (YYYY-MM-DD): ").strip() + "T00:00:00Z"
@@ -167,5 +189,4 @@ async def main():
 if __name__ == "__main__":
     log_and_print("[INFO] Запуск основного процесса.")
     asyncio.run(main())
-
 

@@ -20,7 +20,7 @@ logging.basicConfig(
 CONFIG = {
     "max_requests_per_minute": 30,
     "batch_size": 50,
-    "input_file": r"C:\Users\Main\Pitonio\crypto_etf\category_downloader.xlsx",
+    "input_file": r"C:\Users\Main\Pitonio\crypto_etf\category_downloader_new.xlsx",
     "output_folder": r"C:\Users\Main\Pitonio\crypto_etf\results",
     "save_path": r"C:\Users\Main\Pitonio\crypto_etf"
 }
@@ -46,11 +46,13 @@ ANALYSIS_DATES = [
     ("2025-01-05", "2025-01-06"),
     ("2025-01-12", "2025-01-13"),
     ("2025-01-18", "2025-01-19"),
-    ("2025-01-26", "2025-01-27"),
+    ("2025-01-25", "2025-01-26"),
     ("2025-02-01", "2025-02-02"),
     ("2025-02-08", "2025-02-09"),
     ("2025-02-15", "2025-02-16"),
-    ("2025-02-21", "2025-02-22")
+    ("2025-02-22", "2025-02-23"),
+    ("2025-03-01", "2025-03-02"),
+    ("2025-03-08", "2025-03-09")
 ]
 
 
@@ -68,30 +70,44 @@ class APIHandler:
         return self.session
 
     async def get_token_info(self, query: str):
-        """Получение информации о токене по ID или тикеру"""
+        """Get token information by ID or ticker"""
         session = await self._get_session()
 
         try:
             endpoint = f"{BASE_URL}/cryptocurrency/info"
-            params = {"symbol": query.upper()} if not query.isdigit() else {"id": query}
+            params = {"id": query} if query.isdigit() else {"symbol": query.upper()}
+
+            print(f"Requesting data from {endpoint} with params: {params}")
+            logging.info(f"Requesting data from {endpoint} with params: {params}")
 
             async with session.get(endpoint, headers=HEADERS, params=params) as response:
                 if response.status == 200:
                     data = await response.json()
-                    if data.get("data"):
-                        token_data = next(iter(data["data"].values()))[0]
+                    print(f"API Response: {data}")  # Debug print
+                    logging.info(f"API Response received: {data}")
+
+                    if data.get("status", {}).get("error_code") == 0 and data.get("data"):
+                        token_data = next(iter(data["data"].values()))
+                        if isinstance(token_data, list):
+                            token_data = token_data[0]
                         return {
                             "id": token_data["id"],
                             "symbol": token_data["symbol"],
                             "name": token_data["name"]
                         }
-                    logging.warning(f"Токен {query} не найден")
+
+                    error_message = data.get("status", {}).get("error_message", "Unknown error")
+                    logging.warning(f"Token {query} not found. Error: {error_message}")
+                    print(f"API Error: {error_message}")
                     return None
                 else:
-                    logging.error(f"Ошибка API {response.status} для запроса {query}")
+                    error_message = f"API Error {response.status}"
+                    logging.error(f"{error_message} for query {query}")
+                    print(f"{error_message}")
                     return None
         except Exception as e:
-            logging.error(f"Ошибка при получении информации о токене: {e}")
+            logging.error(f"Error getting token info: {e}")
+            print(f"Error: {e}")
             return None
 
     async def get_historical_data(self, token_id: int, date_start: str, date_end: str):
@@ -99,6 +115,14 @@ class APIHandler:
         session = await self._get_session()
 
         try:
+            # Проверка корректности дат
+            start_date = datetime.strptime(date_start, '%Y-%m-%d').date()
+            end_date = datetime.strptime(date_end, '%Y-%m-%d').date()
+
+            if end_date < start_date:
+                logging.error(f"Дата окончания {date_end} меньше даты начала {date_start}")
+                return None
+
             endpoint = f"{BASE_URL}/cryptocurrency/quotes/historical"
             params = {
                 "id": str(token_id),
@@ -122,10 +146,14 @@ class APIHandler:
                                 "market_cap": usd_data["market_cap"]
                             })
                         return results
+                    logging.warning(f"Нет данных для токена ID {token_id} за период {date_start} - {date_end}")
                     return None
                 else:
                     logging.error(f"Ошибка API {response.status} для исторических данных")
                     return None
+        except ValueError as e:
+            logging.error(f"Ошибка формата даты: {e}")
+            return None
         except Exception as e:
             logging.error(f"Ошибка при получении исторических данных: {e}")
             return None
@@ -143,7 +171,7 @@ class DataProcessor:
     def __init__(self):
         # Базовая директория
         self.base_dir = r"C:\Users\Main\Pitonio\crypto_etf"
-        self.category_file = os.path.join(self.base_dir, "category_downloader.xlsx")
+        self.category_file = os.path.join(self.base_dir, "category_downloader_new.xlsx")
 
         # Динамическое получение списка result файлов
         self.result_files = self._get_result_files()
@@ -180,23 +208,55 @@ class DataProcessor:
         """Загрузка данных категорий"""
         try:
             if not os.path.exists(self.category_file):
+                print(f"Файл категорий не найден: {self.category_file}")
+                logging.error(f"Файл категорий не найден: {self.category_file}")
                 raise FileNotFoundError(f"Файл категорий не найден: {self.category_file}")
 
-            # Читаем Excel файл, используя номера столбцов
-            # Предполагаем, что Symbol находится в столбце 1 (B), а категории в столбце 3 (D)
-            self.categories_df = pd.read_excel(
-                self.category_file,
-                usecols=[1, 3],  # B и D столбцы (0-based индексация)
-                names=['Symbol', 'Category']  # Задаем имена столбцов
-            )
+            print(f"Начинаю загрузку файла категорий: {self.category_file}")
+            logging.info(f"Начинаю загрузку файла категорий: {self.category_file}")
 
+            # Пробуем загрузить только нужные столбцы
+            try:
+                print("Пробую загрузить только столбцы C и D...")
+                self.categories_df = pd.read_excel(
+                    self.category_file,
+                    engine='openpyxl',
+                    usecols=[2, 3],  # Столбцы C и D
+                    names=['Symbol', 'Category']  # Сразу задаем имена столбцов
+                )
+
+                print(f"Файл успешно загружен")
+                print(f"Размер DataFrame: {self.categories_df.shape}")
+                print(f"Столбцы: {self.categories_df.columns.tolist()}")
+
+            except Exception as e:
+                print(f"Ошибка при загрузке файла: {str(e)}")
+                logging.error(f"Ошибка при загрузке файла: {str(e)}")
+                raise
+
+            # Очищаем данные
+            original_length = len(self.categories_df)
             self.categories_df = self.categories_df.dropna(subset=['Symbol', 'Category'])
+            cleaned_length = len(self.categories_df)
+
+            print(f"Строк до очистки: {original_length}")
+            print(f"Строк после очистки: {cleaned_length}")
+            print(f"Удалено пустых строк: {original_length - cleaned_length}")
+
+            if not self.categories_df.empty:
+                print(f"Уникальные категории: {self.categories_df['Category'].unique().tolist()}")
+                print(f"Количество уникальных токенов: {len(self.categories_df['Symbol'].unique())}")
+                print("\nПример данных:")
+                print(self.categories_df.head().to_string())
+            else:
+                raise ValueError("После очистки данных DataFrame пуст")
 
             logging.info(
-                f"Загружено {len(self.categories_df)} токенов из {len(self.categories_df['Category'].unique())} категорий"
-            )
+                f"Загружено {len(self.categories_df)} токенов из {len(self.categories_df['Category'].unique())} категорий")
+
         except Exception as e:
-            logging.error(f"Ошибка загрузки категорий: {e}")
+            print(f"Ошибка загрузки категорий: {str(e)}")
+            logging.error(f"Ошибка загрузки категорий: {str(e)}")
             raise
 
     def refresh_result_files(self):
@@ -336,74 +396,109 @@ class DataProcessor:
     def process_data(self):
         """Обработка данных по категориям"""
         try:
-            # Обновляем список файлов
-            self.refresh_result_files()
-
-            if not self.result_files:
-                logging.error("Нет файлов для обработки")
+            # Проверяем загрузку категорий
+            if self.categories_df is None or self.categories_df.empty:
+                logging.error("DataFrame категорий пуст или не инициализирован")
                 return pd.DataFrame()
 
-            results = []
+            # Получаем список всех файлов результатов
+            results_folder = os.path.join(self.base_dir, "results")
+            if not os.path.exists(results_folder):
+                logging.error(f"Папка с результатами не найдена: {results_folder}")
+                return pd.DataFrame()
+
+            result_files = [f for f in os.listdir(results_folder) if f.startswith('result_') and f.endswith('.xlsx')]
+            result_files.sort(key=lambda x: re.findall(r'\d{4}-\d{2}-\d{2}', x)[0])
+
+            if not result_files:
+                logging.error("Файлы результатов не найдены")
+                return pd.DataFrame()
+
+            print(f"\nОбработка {len(result_files)} файлов результатов...")
+
+            all_results = []
             categories = self.categories_df['Category'].unique()
 
-            for result_file in self.result_files:
+            for result_file in result_files:
                 try:
-                    # Получаем дату из имени файла
-                    date_match = re.search(r'result_(\d{4}-\d{2}-\d{2})', result_file)
-                    if not date_match:
-                        logging.warning(f"Некорректное имя файла: {result_file}")
+                    file_path = os.path.join(results_folder, result_file)
+                    print(f"\nОбработка файла: {result_file}")
+
+                    # Извлекаем дату из имени файла
+                    end_date_match = re.search(r'to_(\d{4}-\d{2}-\d{2})', result_file)
+                    if not end_date_match:
+                        print(f"Пропуск файла {result_file}: некорректное имя")
                         continue
 
-                    date = date_match.group(1)
+                    end_date = end_date_match.group(1)
 
-                    if not os.path.exists(result_file):
-                        logging.warning(f"Файл не найден: {result_file}")
-                        continue
+                    # Загружаем данные из файла results
+                    # Используем конкретные столбцы: A (ID), B (Symbol), C (Price), D (Market Cap)
+                    df_results = pd.read_excel(
+                        file_path,
+                        usecols=[0, 1, 2, 3],  # A, B, C, D columns
+                        names=['Id', 'Symbol', 'Price', 'Market Cap']
+                    )
 
-                    # Загружаем и обрабатываем данные
-                    df_results = pd.read_excel(result_file)
-                    logging.info(f"Обработка файла {result_file}: {len(df_results)} записей")
+                    print(f"Загружено {len(df_results)} записей")
 
+                    # Обрабатываем каждую категорию
                     for category in categories:
-                        category_tokens = self.categories_df[
-                            self.categories_df['Category'] == category
-                            ]['Symbol'].tolist()
+                        # Получаем список токенов для текущей категории
+                        category_tokens = set(self.categories_df[
+                                                  self.categories_df['Category'] == category
+                                                  ]['Symbol'].tolist())
 
+                        # Фильтруем данные только для токенов этой категории
                         category_data = df_results[
                             df_results['Symbol'].isin(category_tokens)
                         ]
 
                         if not category_data.empty:
-                            results.append({
+                            # Рассчитываем средние значения для категории
+                            avg_price = category_data['Price'].mean()
+                            avg_market_cap = category_data['Market Cap'].mean()
+                            token_count = len(category_data)
+
+                            all_results.append({
                                 'Category': category,
-                                'Date': date,
-                                'Price': category_data['Price (USD)'].mean(),
-                                'MarketCap': category_data['Market Cap'].mean(),
-                                'TokenCount': len(category_data),
+                                'Date': end_date,
+                                'Price': avg_price,
+                                'MarketCap': avg_market_cap,
+                                'TokenCount': token_count,
                                 'TotalTokens': len(category_tokens)
                             })
 
+                            print(f"Категория {category}: {token_count} токенов из {len(category_tokens)}")
+                        else:
+                            print(f"Нет данных для категории {category}")
+
                 except Exception as e:
-                    logging.error(f"Ошибка обработки файла {result_file}: {e}")
+                    print(f"Ошибка при обработке файла {result_file}: {e}")
+                    logging.error(f"Ошибка при обработке файла {result_file}: {e}")
                     continue
 
-            # Создаем и сохраняем результаты
-            results_df = pd.DataFrame(results)
+            # Создаем DataFrame из результатов
+            results_df = pd.DataFrame(all_results)
 
             if results_df.empty:
                 logging.warning("Нет данных после обработки")
                 return pd.DataFrame()
 
-            # Сохраняем отладочные данные
-            timestamp = datetime.now().strftime('%Y%m%d_%H%M')
-            debug_filename = os.path.join(self.base_dir, f'categories_debug_{timestamp}.xlsx')
-            results_df.to_excel(debug_filename, index=False)
-            logging.info(f"Отладочные данные сохранены в {debug_filename}")
+            # Сортируем результаты
+            results_df = results_df.sort_values(['Date', 'Category'])
+
+            print(f"\nИтоги обработки:")
+            print(f"- Обработано файлов: {len(result_files)}")
+            print(f"- Категорий: {len(results_df['Category'].unique())}")
+            print(f"- Всего записей: {len(results_df)}")
+            print(f"- Диапазон дат: с {results_df['Date'].min()} по {results_df['Date'].max()}")
 
             return results_df
 
         except Exception as e:
             logging.error(f"Ошибка при обработке данных категорий: {e}")
+            print(f"Ошибка при обработке данных категорий: {e}")
             return pd.DataFrame()
 
     def save_results(self, df: pd.DataFrame, token_symbol: str):
@@ -460,77 +555,101 @@ class Visualizer:
         }
 
     def create_combined_plot(self, categories_df: pd.DataFrame, token_df: pd.DataFrame, token_symbol: str):
-        """Создание улучшенного комбинированного графика"""
+        """Creating a combined plot"""
         fig = go.Figure()
 
-        # Вычисляем изменение цены токена
-        token_first_price = token_df['price'].iloc[0]
-        token_last_price = token_df['price'].iloc[-1]
-        token_change = ((token_last_price - token_first_price) / token_first_price) * 100
+        # Normalize dates
+        token_df['date'] = pd.to_datetime(token_df['date'])
+        categories_df['Date'] = pd.to_datetime(categories_df['Date'])
 
-        # Добавляем линию токена (всегда видима, привязана к левой оси Y)
+        # Get base price for normalization
+        token_base_price = token_df['price'].iloc[0]
+        print(f"\nBase price for {token_symbol}: ${token_base_price:.4f}")
+
+        # Normalize token prices (percentage change from initial price)
+        token_df['normalized_price'] = ((token_df['price'] - token_base_price) / token_base_price) * 100
+
+        # Add token line
+        token_change = token_df['normalized_price'].iloc[-1]
+
         fig.add_trace(go.Scatter(
             x=token_df['date'],
-            y=token_df['price'],
+            y=token_df['normalized_price'],
             name=f"{token_symbol}",
             mode='lines+markers',
             line=dict(color='red', width=3),
             marker=dict(size=8),
-            yaxis='y',
             visible=True,
             hovertemplate=(
                     f"<b>{token_symbol}</b><br>" +
-                    "Дата: %{x}<br>" +
-                    "Цена: $%{y:.4f}<br>" +
-                    f"Изменение: {token_change:.2f}%<br>" +
+                    "Date: %{x}<br>" +
+                    "Change: %{y:.2f}%<br>" +
+                    "Price: ${:,.4f}<br>".format(token_df['price'].iloc[-1]) +
                     "<extra></extra>"
             )
         ))
 
-        # Получаем отсортированный список категорий
+        # Process categories
         categories = sorted(categories_df['Category'].unique())
+        print(f"\nProcessing {len(categories)} categories...")
 
-        # Добавляем линии категорий (привязаны к правой оси Y)
         for idx, category in enumerate(categories):
-            category_data = categories_df[categories_df['Category'] == category]
+            category_data = categories_df[categories_df['Category'] == category].copy()
 
-            first_price = category_data['Price'].iloc[0]
-            last_price = category_data['Price'].iloc[-1]
-            price_change = ((last_price - first_price) / first_price) * 100
+            if len(category_data) < 2:  # Skip categories with insufficient data
+                print(f"Skipping category {category}: insufficient data")
+                continue
+
+            # Sort category data by date
+            category_data = category_data.sort_values('Date')
+
+            # Base price for category
+            category_base_price = category_data['Price'].iloc[0]
+
+            # Normalize category prices
+            category_data['normalized_price'] = ((category_data[
+                                                      'Price'] - category_base_price) / category_base_price) * 100
+
+            # Calculate category price change
+            category_change = category_data['normalized_price'].iloc[-1]
 
             color_idx = (idx % 10) + 1
 
+            # Add category line
             fig.add_trace(go.Scatter(
                 x=category_data['Date'],
-                y=category_data['Price'],
+                y=category_data['normalized_price'],
                 name=f"{category}",
                 mode='lines+markers',
                 line=dict(
                     color=self.dynamic_colors[color_idx],
-                    width=3
+                    width=2
                 ),
                 marker=dict(
-                    size=8,
+                    size=6,
                     color=self.dynamic_colors[color_idx]
                 ),
-                opacity=1.0,
-                visible='legendonly',
-                yaxis='y2',  # Привязка к правой оси
+                visible='legendonly',  # Hidden by default
                 hovertemplate=(
                         f"<b>{category}</b><br>" +
-                        "Дата: %{x}<br>" +
-                        "Цена: $%{y:.4f}<br>" +
-                        f"Изменение: {price_change:.2f}%<br>" +
+                        "Date: %{x}<br>" +
+                        "Change: %{y:.2f}%<br>" +
+                        "Tokens: {:,d}<br>".format(category_data['TokenCount'].iloc[-1]) +
                         "<extra></extra>"
                 )
             ))
 
-        # Настраиваем макет с динамической легендой сверху
+            print(f"Category {category}: change {category_change:.2f}%")
+
+        # Configure layout
         fig.update_layout(
-            # Верхняя динамическая легенда
+            title=dict(
+                x=0.5,
+                y=0.95
+            ),
             annotations=[dict(
-                x=0.5,  # Центр графика
-                y=1.12,  # Положение над графиком
+                x=0.5,
+                y=1.12,
                 xref="paper",
                 yref="paper",
                 text=f"{token_symbol}: {token_change:.2f}%",
@@ -540,53 +659,54 @@ class Visualizer:
                     size=14,
                     color="black"
                 ),
-                bgcolor="rgba(255, 255, 0, 0.2)",  # Светло-желтый фон
-                bordercolor="rgba(255, 255, 0, 0.5)",  # Желтая рамка
+                bgcolor="rgba(255, 255, 0, 0.2)",
+                bordercolor="rgba(255, 255, 0, 0.5)",
                 borderwidth=2,
-                borderpad=8,  # Увеличенный отступ
-                align='center',
-                width=1000  # Фиксированная ширина
+                borderpad=8,
+                align='center'
             )],
-
-            # Настройка осей
             yaxis=dict(
-                title=f"Цена {token_symbol} (USD)",
-                side='left',
-                showgrid=True
+                title="Price Change (%)",
+                showgrid=True,
+                gridcolor='lightgray',
+                zeroline=True,
+                zerolinecolor='black',
+                zerolinewidth=1
             ),
-            yaxis2=dict(
-                title="Цена категорий (USD)",
-                side='right',
-                overlaying='y',
-                showgrid=False
+            xaxis=dict(
+                title="Date",
+                type='date',
+                tickformat='%Y-%m-%d',
+                showgrid=True,
+                gridcolor='lightgray'
             ),
-
-            # Остальные настройки макета
-            xaxis=dict(title="Дата"),
             showlegend=True,
             legend=dict(
                 orientation="v",
                 yanchor="top",
                 y=1,
                 xanchor="left",
-                x=1.02
+                x=1.02,
+                bgcolor="rgba(255, 255, 255, 0.8)",
+                bordercolor="lightgray",
+                borderwidth=1
             ),
             hovermode='x unified',
             plot_bgcolor='white',
-            margin=dict(t=100)  # Отступ сверху для легенды
+            margin=dict(t=100, r=200)  # Increased right margin for legend
         )
 
         return fig
 
     def save_plot(self, fig, token_symbol: str):
-        """Сохранение графика в HTML файл"""
+        """Save plot to HTML file"""
         try:
-            # Обновленный путь для сохранения
+            # Updated save path
             save_path = r"C:\Users\Main\Pitonio\crypto_etf"
             timestamp = datetime.now().strftime('%Y%m%d_%H%M')
             filename = os.path.join(save_path, f'analysis_{token_symbol}_{timestamp}.html')
 
-            # Конфигурация графика
+            # Plot configuration
             config = {
                 'displayModeBar': True,
                 'scrollZoom': True,
@@ -594,7 +714,7 @@ class Visualizer:
                 'modeBarButtonsToAdd': ['drawline', 'eraseshape']
             }
 
-            # Получаем базовый HTML
+            # Get base HTML
             html_content = fig.to_html(
                 config=config,
                 include_plotlyjs=True,
@@ -602,37 +722,37 @@ class Visualizer:
                 include_mathjax=False
             )
 
-            # JavaScript для динамического обновления
+            # JavaScript for dynamic updates
             js_code = """
             <script>
                 var graphDiv = document.getElementById('graph');
 
                 function updateTopLegend() {
                     var traces = graphDiv.data;
-                    var tokenTrace = traces[0];  // Первый график - всегда токен
-                    var tokenChange = parseFloat(tokenTrace.hovertemplate.split('Изменение: ')[1]);
+                    var tokenTrace = traces[0];  // First plot is always the token
+                    var tokenChange = parseFloat(tokenTrace.hovertemplate.split('Change: ')[1]);
 
-                    // Начинаем с токена
+                    // Start with token
                     var legendParts = [`${tokenTrace.name}: ${tokenChange.toFixed(2)}%`];
 
-                    // Собираем информацию о видимых категориях
+                    // Collect information about visible categories
                     var visibleCategories = [];
                     for(var i = 1; i < traces.length; i++) {
                         if(traces[i].visible === true) {
-                            var categoryChange = parseFloat(traces[i].hovertemplate.split('Изменение: ')[1]);
+                            var categoryChange = parseFloat(traces[i].hovertemplate.split('Change: ')[1]);
                             visibleCategories.push(`${traces[i].name}: ${categoryChange.toFixed(2)}%`);
                         }
                     }
 
-                    // Добавляем категории, если они есть
+                    // Add categories if any
                     if(visibleCategories.length > 0) {
                         legendParts = legendParts.concat(visibleCategories);
                     }
 
-                    // Объединяем все части с правильным форматированием
+                    // Join all parts with proper formatting
                     var legendText = legendParts.join('  |  ');
 
-                    // Обновляем аннотацию
+                    // Update annotation
                     Plotly.relayout(graphDiv, {
                         'annotations[0].text': legendText,
                         'annotations[0].bgcolor': 'rgba(255, 255, 0, 0.2)',
@@ -644,52 +764,53 @@ class Visualizer:
                     });
                 }
 
-                // Обработчики событий для обновления при взаимодействии
+                // Event handlers for updates on interaction
                 graphDiv.on('plotly_restyle', updateTopLegend);
                 graphDiv.on('plotly_legendclick', function(data) {
                     setTimeout(updateTopLegend, 100);
                     return false;
                 });
 
-                // Обработчик для перекрестия и обновления при наведении
+                // Handler for crosshair and updates on hover
                 graphDiv.on('plotly_hover', function(data) {
                     updateTopLegend();
                 });
 
-                // Инициализация при загрузке
+                // Initialize on load
                 document.addEventListener('DOMContentLoaded', updateTopLegend);
             </script>
             """
 
-            # Добавляем JavaScript в HTML
+            # Add JavaScript to HTML
             html_content = html_content.replace('</body>', f'{js_code}</body>')
 
-            # Сохраняем файл
+            # Save file
             with open(filename, 'w', encoding='utf-8') as f:
                 f.write(html_content)
 
-            # Проверяем успешность сохранения
+            # Check save success
             if os.path.exists(filename):
                 file_size = os.path.getsize(filename)
-                logging.info(f"График успешно сохранен в {filename} (размер: {file_size} байт)")
+                logging.info(f"Plot successfully saved to {filename} (size: {file_size} bytes)")
                 return filename
             else:
-                logging.error(f"Не удалось сохранить файл {filename}")
+                logging.error(f"Failed to save file {filename}")
                 return None
 
         except Exception as e:
-            logging.error(f"Ошибка при сохранении графика: {e}")
+            logging.error(f"Error saving plot: {e}")
             return None
 
 
 def save_token_data(token_df: pd.DataFrame, token_symbol: str) -> str:
     """Сохранение данных токена в Excel"""
     try:
+        # Проверяем наличие данных
         if token_df.empty:
             logging.error("Нет данных для сохранения")
             return None
 
-        # Используем тот же базовый путь
+        # Создаем директорию, если её нет
         save_dir = r"C:\Users\Main\Pitonio\crypto_etf"
         os.makedirs(save_dir, exist_ok=True)
 
@@ -778,54 +899,76 @@ async def main():
 
     try:
         # === Тестовый запрос ===
-        print("\n=== Тестовый запрос ===")
-        query = input("Введите тикер токена: ").strip()
+        print("\n=== Test Request ===")
+        query = input("Enter token ID (numeric): ").strip()
+
+        # Проверяем, что введено число
+        if not query.isdigit():
+            print("Error: Please enter a numeric token ID")
+            return
 
         # Получаем информацию о токене
         token_info = await api_handler.get_token_info(query)
         if not token_info:
-            print("Токен не найден")
+            print("Token not found")
             return
 
-        print("\nИнформация о токене:")
+        print("\nToken Information:")
         print(f"ID: {token_info['id']}")
-        print(f"Символ: {token_info['symbol']}")
-        print(f"Название: {token_info['name']}")
+        print(f"Symbol: {token_info['symbol']}")
+        print(f"Name: {token_info['name']}")
 
-        # Запрашиваем даты для тестового запроса
-        print("\nВведите даты для тестового запроса (формат: YYYY-MM-DD)")
-        start_date = input("Дата начала: ").strip()
-        end_date = input("Дата окончания: ").strip()
-
-        # Проверяем формат дат
-        try:
-            datetime.strptime(start_date, '%Y-%m-%d')
-            datetime.strptime(end_date, '%Y-%m-%d')
-        except ValueError:
-            print("Неверный формат даты. Используйте формат YYYY-MM-DD")
-            return
-
-        # Получаем тестовые данные
-        test_data = await api_handler.get_historical_data(
-            token_info['id'],
-            start_date,
-            end_date
-        )
-
-        if test_data:
-            print(f"\nТестовые данные за период {start_date} - {end_date}:")
-            for data in test_data:
-                print(f"Дата: {data['date']}")
-                print(f"Цена закрытия: ${data['price']:.4f}")
-                print(f"Капитализация: ${data['market_cap']:,.2f}")
+        # Спрашиваем пользователя о продолжении тестового запроса
+        test_continue = input("\nПродолжить тестовый запрос? (y/n): ").lower()
+        if test_continue != 'y':
+            print("\n=== Пропуск тестового запроса ===")
+            continue_analysis = 'y'
+            # Переходим к получению исторических данных
+            print("\n=== Получение исторических данных ===")
+            all_historical_data = []
         else:
-            print("Не удалось получить тестовые данные")
-            return
+            # Запрашиваем даты для тестового запроса
+            print("\nВведите даты для тестового запроса (формат: YYYY-MM-DD)")
+            while True:
+                try:
+                    start_date = input("Дата начала: ").strip()
+                    end_date = input("Дата окончания: ").strip()
 
-        # === Запрос на продолжение ===
-        continue_analysis = input("\nПродолжить с полным анализом? (y/n): ").lower()
-        if continue_analysis != 'y':
-            return
+                    # Проверяем формат дат
+                    start = datetime.strptime(start_date, '%Y-%m-%d').date()
+                    end = datetime.strptime(end_date, '%Y-%m-%d').date()
+
+                    # Проверяем корректность периода
+                    if end < start:
+                        print("Ошибка: Дата окончания не может быть раньше даты начала")
+                        continue
+
+                    break
+                except ValueError:
+                    print("Неверный формат даты. Используйте формат YYYY-MM-DD")
+                    continue
+
+            # Получаем тестовые данные
+            test_data = await api_handler.get_historical_data(
+                token_info['id'],
+                start_date,
+                end_date
+            )
+
+            if test_data:
+                print(f"\nТестовые данные за период {start_date} - {end_date}:")
+                for data in test_data:
+                    print(f"Дата: {data['date']}")
+                    print(f"Цена закрытия: ${data['price']:.4f}")
+                    print(f"Капитализация: ${data['market_cap']:,.2f}")
+            else:
+                print("Не удалось получить тестовые данные")
+                return
+
+            # === Запрос на продолжение ===
+            continue_analysis = input("\nПродолжить с полным анализом? (y/n): ").lower()
+            if continue_analysis != 'y':
+                return
 
         # === Получение исторических данных ===
         print("\n=== Получение исторических данных ===")
@@ -835,18 +978,67 @@ async def main():
         for start, end in ANALYSIS_DATES:
             print(f"- {start} to {end}")
 
+        MAX_RETRIES = 10  # Максимальное количество попыток для каждого периода
+
         with tqdm(total=len(ANALYSIS_DATES), desc="Прогресс запросов") as pbar:
             for start_date, end_date in ANALYSIS_DATES:
-                await asyncio.sleep(1)  # Небольшая задержка между запросами
-                period_data = await api_handler.get_historical_data(
-                    token_info['id'],
-                    start_date,
-                    end_date
-                )
+                retry_count = 0
+                period_data = None
+
+                while retry_count < MAX_RETRIES:
+                    try:
+                        await asyncio.sleep(1)  # Небольшая задержка между запросами
+                        period_data = await api_handler.get_historical_data(
+                            token_info['id'],
+                            start_date,
+                            end_date
+                        )
+                        if period_data:
+                            break
+                        retry_count += 1
+                        if retry_count < MAX_RETRIES:
+                            print(f"\nПопытка {retry_count + 1} из {MAX_RETRIES} для периода {start_date} - {end_date}")
+                    except Exception as e:
+                        print(f"\nОшибка при получении данных: {e}")
+                        retry_count += 1
+                        if retry_count < MAX_RETRIES:
+                            print(f"Повторная попытка {retry_count + 1} из {MAX_RETRIES}")
+
+                if not period_data and retry_count >= MAX_RETRIES:
+                    print(
+                        f"\nНе удалось получить данные за период {start_date} - {end_date} после {MAX_RETRIES} попыток")
+                    retry_decision = input("Повторить попытки для этого периода? (y/n): ").lower()
+
+                    while retry_decision == 'y':
+                        retry_count = 0
+                        while retry_count < MAX_RETRIES:
+                            try:
+                                await asyncio.sleep(1)
+                                period_data = await api_handler.get_historical_data(
+                                    token_info['id'],
+                                    start_date,
+                                    end_date
+                                )
+                                if period_data:
+                                    break
+                                retry_count += 1
+                                if retry_count < MAX_RETRIES:
+                                    print(f"\nДополнительная попытка {retry_count + 1} из {MAX_RETRIES}")
+                            except Exception as e:
+                                print(f"\nОшибка при получении данных: {e}")
+                                retry_count += 1
+
+                        if not period_data:
+                            retry_decision = input("Повторить попытки снова? (y/n): ").lower()
+                        else:
+                            break
+
                 if period_data:
                     all_historical_data.extend(period_data)
+                    print(f"\nУспешно получены данные за период {start_date} - {end_date}")
                 else:
-                    print(f"\nНе удалось получить данные за период {start_date} - {end_date}")
+                    print(f"\nПропускаем период {start_date} - {end_date}")
+
                 pbar.update(1)
 
         if not all_historical_data:

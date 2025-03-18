@@ -85,7 +85,7 @@ class APIHandler:
                     data = await response.json()
                     print(f"API Response: {data}")  # Debug print
                     logging.info(f"API Response received: {data}")
-
+                    
                     if data.get("status", {}).get("error_code") == 0 and data.get("data"):
                         token_data = next(iter(data["data"].values()))
                         if isinstance(token_data, list):
@@ -95,7 +95,7 @@ class APIHandler:
                             "symbol": token_data["symbol"],
                             "name": token_data["name"]
                         }
-
+                    
                     error_message = data.get("status", {}).get("error_message", "Unknown error")
                     logging.warning(f"Token {query} not found. Error: {error_message}")
                     print(f"API Error: {error_message}")
@@ -118,7 +118,7 @@ class APIHandler:
             # Проверка корректности дат
             start_date = datetime.strptime(date_start, '%Y-%m-%d').date()
             end_date = datetime.strptime(date_end, '%Y-%m-%d').date()
-
+            
             if end_date < start_date:
                 logging.error(f"Дата окончания {date_end} меньше даты начала {date_start}")
                 return None
@@ -214,7 +214,7 @@ class DataProcessor:
 
             print(f"Начинаю загрузку файла категорий: {self.category_file}")
             logging.info(f"Начинаю загрузку файла категорий: {self.category_file}")
-
+            
             # Пробуем загрузить только нужные столбцы
             try:
                 print("Пробую загрузить только столбцы C и D...")
@@ -224,11 +224,11 @@ class DataProcessor:
                     usecols=[2, 3],  # Столбцы C и D
                     names=['Symbol', 'Category']  # Сразу задаем имена столбцов
                 )
-
+                
                 print(f"Файл успешно загружен")
                 print(f"Размер DataFrame: {self.categories_df.shape}")
                 print(f"Столбцы: {self.categories_df.columns.tolist()}")
-
+                
             except Exception as e:
                 print(f"Ошибка при загрузке файла: {str(e)}")
                 logging.error(f"Ошибка при загрузке файла: {str(e)}")
@@ -238,11 +238,11 @@ class DataProcessor:
             original_length = len(self.categories_df)
             self.categories_df = self.categories_df.dropna(subset=['Symbol', 'Category'])
             cleaned_length = len(self.categories_df)
-
+            
             print(f"Строк до очистки: {original_length}")
             print(f"Строк после очистки: {cleaned_length}")
             print(f"Удалено пустых строк: {original_length - cleaned_length}")
-
+            
             if not self.categories_df.empty:
                 print(f"Уникальные категории: {self.categories_df['Category'].unique().tolist()}")
                 print(f"Количество уникальных токенов: {len(self.categories_df['Symbol'].unique())}")
@@ -251,9 +251,8 @@ class DataProcessor:
             else:
                 raise ValueError("После очистки данных DataFrame пуст")
 
-            logging.info(
-                f"Загружено {len(self.categories_df)} токенов из {len(self.categories_df['Category'].unique())} категорий")
-
+            logging.info(f"Загружено {len(self.categories_df)} токенов из {len(self.categories_df['Category'].unique())} категорий")
+            
         except Exception as e:
             print(f"Ошибка загрузки категорий: {str(e)}")
             logging.error(f"Ошибка загрузки категорий: {str(e)}")
@@ -418,20 +417,20 @@ class DataProcessor:
 
             all_results = []
             categories = self.categories_df['Category'].unique()
-
+            
             for result_file in result_files:
                 try:
                     file_path = os.path.join(results_folder, result_file)
                     print(f"\nОбработка файла: {result_file}")
-
+                    
                     # Извлекаем дату из имени файла
                     end_date_match = re.search(r'to_(\d{4}-\d{2}-\d{2})', result_file)
                     if not end_date_match:
                         print(f"Пропуск файла {result_file}: некорректное имя")
                         continue
-
+                    
                     end_date = end_date_match.group(1)
-
+                    
                     # Загружаем данные из файла results
                     # Используем конкретные столбцы: A (ID), B (Symbol), C (Price), D (Market Cap)
                     df_results = pd.read_excel(
@@ -439,27 +438,27 @@ class DataProcessor:
                         usecols=[0, 1, 2, 3],  # A, B, C, D columns
                         names=['Id', 'Symbol', 'Price', 'Market Cap']
                     )
-
+                    
                     print(f"Загружено {len(df_results)} записей")
-
+                    
                     # Обрабатываем каждую категорию
                     for category in categories:
                         # Получаем список токенов для текущей категории
                         category_tokens = set(self.categories_df[
-                                                  self.categories_df['Category'] == category
-                                                  ]['Symbol'].tolist())
-
+                            self.categories_df['Category'] == category
+                        ]['Symbol'].tolist())
+                        
                         # Фильтруем данные только для токенов этой категории
                         category_data = df_results[
                             df_results['Symbol'].isin(category_tokens)
                         ]
-
+                        
                         if not category_data.empty:
                             # Рассчитываем средние значения для категории
                             avg_price = category_data['Price'].mean()
                             avg_market_cap = category_data['Market Cap'].mean()
                             token_count = len(category_data)
-
+                            
                             all_results.append({
                                 'Category': category,
                                 'Date': end_date,
@@ -468,7 +467,7 @@ class DataProcessor:
                                 'TokenCount': token_count,
                                 'TotalTokens': len(category_tokens)
                             })
-
+                            
                             print(f"Категория {category}: {token_count} токенов из {len(category_tokens)}")
                         else:
                             print(f"Нет данных для категории {category}")
@@ -480,14 +479,14 @@ class DataProcessor:
 
             # Создаем DataFrame из результатов
             results_df = pd.DataFrame(all_results)
-
+            
             if results_df.empty:
                 logging.warning("Нет данных после обработки")
                 return pd.DataFrame()
 
             # Сортируем результаты
             results_df = results_df.sort_values(['Date', 'Category'])
-
+            
             print(f"\nИтоги обработки:")
             print(f"- Обработано файлов: {len(result_files)}")
             print(f"- Категорий: {len(results_df['Category'].unique())}")
@@ -571,7 +570,7 @@ class Visualizer:
 
         # Add token line
         token_change = token_df['normalized_price'].iloc[-1]
-
+        
         fig.add_trace(go.Scatter(
             x=token_df['date'],
             y=token_df['normalized_price'],
@@ -581,11 +580,11 @@ class Visualizer:
             marker=dict(size=8),
             visible=True,
             hovertemplate=(
-                    f"<b>{token_symbol}</b><br>" +
-                    "Date: %{x}<br>" +
-                    "Change: %{y:.2f}%<br>" +
-                    "Price: ${:,.4f}<br>".format(token_df['price'].iloc[-1]) +
-                    "<extra></extra>"
+                f"<b>{token_symbol}</b><br>" +
+                "Date: %{x}<br>" +
+                "Change: %{y:.2f}%<br>" +
+                "Price: ${:,.4f}<br>".format(token_df['price'].iloc[-1]) +
+                "<extra></extra>"
             )
         ))
 
@@ -595,26 +594,25 @@ class Visualizer:
 
         for idx, category in enumerate(categories):
             category_data = categories_df[categories_df['Category'] == category].copy()
-
+            
             if len(category_data) < 2:  # Skip categories with insufficient data
                 print(f"Skipping category {category}: insufficient data")
                 continue
 
             # Sort category data by date
             category_data = category_data.sort_values('Date')
-
+            
             # Base price for category
             category_base_price = category_data['Price'].iloc[0]
-
+            
             # Normalize category prices
-            category_data['normalized_price'] = ((category_data[
-                                                      'Price'] - category_base_price) / category_base_price) * 100
-
+            category_data['normalized_price'] = ((category_data['Price'] - category_base_price) / category_base_price) * 100
+            
             # Calculate category price change
             category_change = category_data['normalized_price'].iloc[-1]
-
+            
             color_idx = (idx % 10) + 1
-
+            
             # Add category line
             fig.add_trace(go.Scatter(
                 x=category_data['Date'],
@@ -631,14 +629,14 @@ class Visualizer:
                 ),
                 visible='legendonly',  # Hidden by default
                 hovertemplate=(
-                        f"<b>{category}</b><br>" +
-                        "Date: %{x}<br>" +
-                        "Change: %{y:.2f}%<br>" +
-                        "Tokens: {:,d}<br>".format(category_data['TokenCount'].iloc[-1]) +
-                        "<extra></extra>"
+                    f"<b>{category}</b><br>" +
+                    "Date: %{x}<br>" +
+                    "Change: %{y:.2f}%<br>" +
+                    "Tokens: {:,d}<br>".format(category_data['TokenCount'].iloc[-1]) +
+                    "<extra></extra>"
                 )
             ))
-
+            
             print(f"Category {category}: change {category_change:.2f}%")
 
         # Configure layout
@@ -984,7 +982,7 @@ async def main():
             for start_date, end_date in ANALYSIS_DATES:
                 retry_count = 0
                 period_data = None
-
+                
                 while retry_count < MAX_RETRIES:
                     try:
                         await asyncio.sleep(1)  # Небольшая задержка между запросами
@@ -1003,12 +1001,11 @@ async def main():
                         retry_count += 1
                         if retry_count < MAX_RETRIES:
                             print(f"Повторная попытка {retry_count + 1} из {MAX_RETRIES}")
-
+                
                 if not period_data and retry_count >= MAX_RETRIES:
-                    print(
-                        f"\nНе удалось получить данные за период {start_date} - {end_date} после {MAX_RETRIES} попыток")
+                    print(f"\nНе удалось получить данные за период {start_date} - {end_date} после {MAX_RETRIES} попыток")
                     retry_decision = input("Повторить попытки для этого периода? (y/n): ").lower()
-
+                    
                     while retry_decision == 'y':
                         retry_count = 0
                         while retry_count < MAX_RETRIES:
@@ -1027,18 +1024,18 @@ async def main():
                             except Exception as e:
                                 print(f"\nОшибка при получении данных: {e}")
                                 retry_count += 1
-
+                        
                         if not period_data:
                             retry_decision = input("Повторить попытки снова? (y/n): ").lower()
                         else:
                             break
-
+                
                 if period_data:
                     all_historical_data.extend(period_data)
                     print(f"\nУспешно получены данные за период {start_date} - {end_date}")
                 else:
                     print(f"\nПропускаем период {start_date} - {end_date}")
-
+                
                 pbar.update(1)
 
         if not all_historical_data:

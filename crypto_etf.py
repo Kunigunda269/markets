@@ -52,7 +52,8 @@ ANALYSIS_DATES = [
     ("2025-02-15", "2025-02-16"),
     ("2025-02-22", "2025-02-23"),
     ("2025-03-01", "2025-03-02"),
-    ("2025-03-08", "2025-03-09")
+    ("2025-03-08", "2025-03-09"),
+    ("2025-03-15", "2025-03-16")
 ]
 
 
@@ -423,20 +424,18 @@ class DataProcessor:
                     file_path = os.path.join(results_folder, result_file)
                     print(f"\nОбработка файла: {result_file}")
                     
-                    # Извлекаем дату из имени файла
+                    # Извлекаем дату из имени файла (берем дату окончания периода)
                     end_date_match = re.search(r'to_(\d{4}-\d{2}-\d{2})', result_file)
                     if not end_date_match:
                         print(f"Пропуск файла {result_file}: некорректное имя")
                         continue
                     
-                    end_date = end_date_match.group(1)
+                    file_date = end_date_match.group(1)
                     
                     # Загружаем данные из файла results
-                    # Используем конкретные столбцы: A (ID), B (Symbol), C (Price), D (Market Cap)
                     df_results = pd.read_excel(
                         file_path,
-                        usecols=[0, 1, 2, 3],  # A, B, C, D columns
-                        names=['Id', 'Symbol', 'Price', 'Market Cap']
+                        usecols=['Symbol', 'Price (USD)', 'Market Cap']
                     )
                     
                     print(f"Загружено {len(df_results)} записей")
@@ -455,13 +454,13 @@ class DataProcessor:
                         
                         if not category_data.empty:
                             # Рассчитываем средние значения для категории
-                            avg_price = category_data['Price'].mean()
+                            avg_price = category_data['Price (USD)'].mean()
                             avg_market_cap = category_data['Market Cap'].mean()
                             token_count = len(category_data)
                             
                             all_results.append({
                                 'Category': category,
-                                'Date': end_date,
+                                'Date': file_date,
                                 'Price': avg_price,
                                 'MarketCap': avg_market_cap,
                                 'TokenCount': token_count,
@@ -485,6 +484,7 @@ class DataProcessor:
                 return pd.DataFrame()
 
             # Сортируем результаты
+            results_df['Date'] = pd.to_datetime(results_df['Date'])
             results_df = results_df.sort_values(['Date', 'Category'])
             
             print(f"\nИтоги обработки:")
@@ -557,9 +557,26 @@ class Visualizer:
         """Creating a combined plot"""
         fig = go.Figure()
 
-        # Normalize dates
+        # Normalize dates and ensure they are datetime
         token_df['date'] = pd.to_datetime(token_df['date'])
         categories_df['Date'] = pd.to_datetime(categories_df['Date'])
+
+        # Ensure we only use dates that exist in both datasets
+        common_dates = set(token_df['date'].dt.strftime('%Y-%m-%d')).intersection(
+            set(categories_df['Date'].dt.strftime('%Y-%m-%d'))
+        )
+        
+        if not common_dates:
+            print("Error: No common dates between token and categories data")
+            return None
+
+        # Filter data to only include common dates
+        token_df = token_df[token_df['date'].dt.strftime('%Y-%m-%d').isin(common_dates)].copy()
+        categories_df = categories_df[categories_df['Date'].dt.strftime('%Y-%m-%d').isin(common_dates)].copy()
+
+        # Sort both dataframes by date
+        token_df = token_df.sort_values('date')
+        categories_df = categories_df.sort_values('Date')
 
         # Get base price for normalization
         token_base_price = token_df['price'].iloc[0]
@@ -599,7 +616,7 @@ class Visualizer:
                 print(f"Skipping category {category}: insufficient data")
                 continue
 
-            # Sort category data by date
+            # Ensure category data is properly sorted and aligned with token dates
             category_data = category_data.sort_values('Date')
             
             # Base price for category

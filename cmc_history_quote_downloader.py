@@ -17,16 +17,17 @@ HEADERS = {"X-CMC_PRO_API_KEY": API_KEY}
 BASE_URL_HISTORICAL = "https://pro-api.coinmarketcap.com/v2/cryptocurrency/quotes/historical"
 
 CONFIG = {
-    "max_requests_per_minute": 30,              # Лимит запросов в минуту
-    "batch_size": 50,                           # Количество токенов в пакете
-    "input_file": r"C:\Users\Main\Pitonio\crypto_etf\category_downloader_new.xlsx",  # Используйте crypto_etf вместо "crypto etf"
+    "max_requests_per_minute": 30,  # Лимит запросов в минуту
+    "batch_size": 50,  # Количество токенов в пакете
+    "input_file": r"C:\Users\Main\Pitonio\crypto_etf\category_downloader_123.xlsx",
+    # Используйте crypto_etf вместо "crypto etf"
     "output_folder": r"C:\Users\Main\Pitonio\crypto_etf",
 }
 
 # Проверка существования файла
 if not os.path.exists(CONFIG["input_file"]):
     print(f"ОШИБКА: Файл {CONFIG['input_file']} не найден!")
-    print("Убедитесь, что файл category_downloader_new.xlsx находится в той же папке, что и скрипт.")
+    print("Убедитесь, что файл category_downloader_123.xlsx находится в той же папке, что и скрипт.")
     sys.exit(1)
 
 # === Логирование ===
@@ -45,6 +46,7 @@ def log_and_print(message, level="info"):
 
 class RateLimiter:
     """Контролирует количество запросов в минуту."""
+
     def __init__(self, max_requests_per_minute):
         self.interval = 60 / max_requests_per_minute
         self.last_call = time.time()
@@ -83,17 +85,17 @@ async def fetch_historical_data(session, crypto_id, time_start, time_end):
             if response.status == 200:
                 data = await response.json()
                 quotes = data.get('data', {}).get('quotes', [])
-                
+
                 if quotes:
                     start_data = quotes[0]['quote']['USD']
                     end_data = quotes[-1]['quote']['USD']
-                    
+
                     log_and_print("Данные за период:")
                     log_and_print(f"Цена начала: {start_data['price']:.8f} USD")
                     log_and_print(f"Капитализация начала: {start_data['market_cap']:.2f} USD")
                     log_and_print(f"Цена конца: {end_data['price']:.8f} USD")
                     log_and_print(f"Капитализация конца: {end_data['market_cap']:.2f} USD")
-                    
+
                     return {
                         'start_price': start_data['price'],
                         'start_mcap': start_data['market_cap'],
@@ -120,27 +122,27 @@ async def fetch_batch_data(session, tokens, time_start, time_end, processed_toke
     """
     log_and_print(f"[INFO] Обработка пакета из {len(tokens)} токенов...")
     results = []
-    
+
     batch_progress = tqdm(tokens, desc="Текущий пакет", unit="токен", leave=False)
     for token in batch_progress:
-        token_id = token["Id"]
-        batch_progress.set_description(f"Обработка {token['Symbol']}")
-        
+        token_id = token["id"]
+        batch_progress.set_description(f"Обработка {token['symbol']}")
+
         if token_id in processed_tokens:
             # Используем кэшированные данные
-            log_and_print(f"[CACHE] Используем кэшированные данные для {token['Symbol']} (ID: {token_id})")
+            log_and_print(f"[CACHE] Используем кэшированные данные для {token['symbol']} (ID: {token_id})")
             results.append(processed_tokens[token_id])
             continue
 
         # Выполняем запрос для нового токена
-        log_and_print(f"[INFO] Запрос данных для {token['Symbol']} (ID: {token_id})...")
+        log_and_print(f"[INFO] Запрос данных для {token['symbol']} (ID: {token_id})...")
         data = await fetch_historical_data(session, token_id, time_start, time_end)
-        
+
         if data is None:
             # Если данные не получены, создаем запись с нулевыми значениями
             result = {
                 "ID": token_id,
-                "Symbol": token["Symbol"],
+                "Symbol": token["symbol"],
                 "Price (USD)": 0,
                 "Market Cap (USD)": 0,
                 "Status": "No Data"
@@ -148,19 +150,19 @@ async def fetch_batch_data(session, tokens, time_start, time_end, processed_toke
         else:
             result = {
                 "ID": token_id,
-                "Symbol": token["Symbol"],
+                "Symbol": token["symbol"],
                 "Price (USD)": data['end_price'],
                 "Market Cap (USD)": data['end_mcap'],
                 "Status": "OK"
             }
-        
+
         results.append(result)
         processed_tokens[token_id] = result  # Сохраняем в кэш
-        log_and_print(f"[CACHE] Данные для {token['Symbol']} (ID: {token_id}) сохранены в кэш")
-        
+        log_and_print(f"[CACHE] Данные для {token['symbol']} (ID: {token_id}) сохранены в кэш")
+
         # Добавляем небольшую задержку между запросами
         await asyncio.sleep(0.5)
-    
+
     batch_progress.close()
     return results
 
@@ -171,13 +173,17 @@ async def process_tokens(input_file, output_folder, time_start, time_end):
     """
     log_and_print("[INFO] Чтение данных из входного файла...")
     data = pd.read_excel(input_file)
-    data = data.dropna(subset=["Id", "Symbol"])
-    data["Id"] = data["Id"].astype(int)
-    
-    # Удаляем дубликаты по Id и Symbol вместе
-    data = data.drop_duplicates(subset=["Id", "Symbol"], keep="first")
-    
-    tokens = data[["Id", "Symbol"]].to_dict(orient="records")
+
+    # Добавляем временный числовой ID на основе индекса
+    data['Id'] = range(1, len(data) + 1)
+
+    # Фильтрация и подготовка данных
+    data = data.dropna(subset=['Symbol'])
+
+    tokens = data[['Id', 'Symbol']].to_dict(orient="records")
+    tokens = [{"id": t['Id'], "symbol": t['Symbol']} for t in tokens]
+
+    # Остальной код без изменений
     total_tokens = len(tokens)
     log_and_print(f"[INFO] Успешно загружено {total_tokens} уникальных токенов для обработки.")
 
@@ -188,46 +194,48 @@ async def process_tokens(input_file, output_folder, time_start, time_end):
         progress_bar = tqdm(total=total_tokens, desc="Обработка токенов", unit="токен")
         for i in range(0, total_tokens, CONFIG["batch_size"]):
             batch = tokens[i:i + CONFIG["batch_size"]]
-            log_and_print(f"[INFO] Начинается обработка пакета {i // CONFIG['batch_size'] + 1} из {(total_tokens - 1) // CONFIG['batch_size'] + 1}...")
+            log_and_print(
+                f"[INFO] Начинается обработка пакета {i // CONFIG['batch_size'] + 1} из {(total_tokens - 1) // CONFIG['batch_size'] + 1}...")
             batch_results = await fetch_batch_data(session, batch, time_start, time_end, processed_tokens)
-            
+
             # Добавляем только уникальные результаты
             for result in batch_results:
                 if not any(r["ID"] == result["ID"] and r["Symbol"] == result["Symbol"] for r in all_results):
                     all_results.append(result)
-            
+
             # Обновляем прогресс бар
             progress_bar.update(len(batch))
-            
-            log_and_print(f"[INFO] Обработка пакета {i // CONFIG['batch_size'] + 1} завершена. В кэше {len(processed_tokens)} токенов.")
-        
+
+            log_and_print(
+                f"[INFO] Обработка пакета {i // CONFIG['batch_size'] + 1} завершена. В кэше {len(processed_tokens)} токенов.")
+
         progress_bar.close()
 
     # Создаем DataFrame и обрабатываем данные
     df = pd.DataFrame(all_results)
-    
+
     # Дополнительная проверка на дубликаты по ID и Symbol
     df = df.drop_duplicates(subset=["ID", "Symbol"], keep="first")
-    
+
     # Преобразуем числовые колонки в float64
     df["Price (USD)"] = pd.to_numeric(df["Price (USD)"], errors="coerce")
     df["Market Cap (USD)"] = pd.to_numeric(df["Market Cap (USD)"], errors="coerce")
-    
+
     # Сортируем по Market Cap (по убыванию)
     df = df.sort_values(by="Market Cap (USD)", ascending=False)
-    
+
     # Заменяем NaN на "N/A"
     df = df.replace({np.nan: "N/A"})
-    
+
     # Форматируем числовые значения
     def format_number(x):
         if isinstance(x, (int, float)):
             if x >= 1_000_000_000:  # миллиарды
-                return f"{x/1_000_000_000:.2f}B"
+                return f"{x / 1_000_000_000:.2f}B"
             elif x >= 1_000_000:  # миллионы
-                return f"{x/1_000_000:.2f}M"
+                return f"{x / 1_000_000:.2f}M"
             elif x >= 1_000:  # тысячи
-                return f"{x/1_000:.2f}K"
+                return f"{x / 1_000:.2f}K"
             else:
                 return f"{x:.2f}"
         return x
@@ -238,15 +246,15 @@ async def process_tokens(input_file, output_folder, time_start, time_end):
 
     # Сохраняем результат
     output_file = os.path.join(output_folder, f"result_{time_start[:10]}_to_{time_end[:10]}.xlsx")
-    
+
     # Создаем Excel writer
     with pd.ExcelWriter(output_file, engine='xlsxwriter') as writer:
         df.to_excel(writer, index=False, sheet_name='Results')
-        
+
         # Получаем workbook и worksheet
         workbook = writer.book
         worksheet = writer.sheets['Results']
-        
+
         # Форматы для ячеек
         header_format = workbook.add_format({
             'bold': True,
@@ -255,11 +263,11 @@ async def process_tokens(input_file, output_folder, time_start, time_end):
             'bg_color': '#D9D9D9',
             'border': 1
         })
-        
+
         # Применяем форматы к заголовкам
         for col_num, value in enumerate(df.columns.values):
             worksheet.write(0, col_num, value, header_format)
-            
+
         # Автоматическая ширина колонок
         for idx, col in enumerate(df.columns):
             series = df[col]
@@ -275,7 +283,7 @@ async def process_tokens(input_file, output_folder, time_start, time_end):
 async def main():
     """Главная функция."""
     log_and_print("[INFO] Начало работы программы...")
-    
+
     test_id = int(input("Введите ID токена для тестового запроса: ").strip())
     test_start = input("Введите начальную дату для теста (YYYY-MM-DD): ").strip() + "T00:00:00Z"
     test_end = input("Введите конечную дату для теста (YYYY-MM-DD): ").strip() + "T23:59:59Z"

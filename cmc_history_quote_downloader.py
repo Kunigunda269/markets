@@ -46,7 +46,7 @@ CONFIG = {
     
     # Пути к файлам
     "input_file": r"C:\Users\Илья\PycharmProjects\crypto etf\category_downloader_123.xlsx", 
-    "output_folder": r"C:\Users\Илья\PycharmProjects",
+    "output_folder": r"C:\Users\Илья\PycharmProjects\crypto etf",
     
     # Дополнительные настройки
     "request_delay": 1,                 # Уменьшена задержка для ускорения
@@ -253,7 +253,7 @@ def extract_price_and_market_cap(data, endpoint_type, token_id):
 
 
 def format_date_for_api(date_str):
-    """Улучшенное форматирование и валидация даты для API."""
+    """Улучшенное форматирование и валидация даты для API с учетом ограничений тарифа."""
     try:
         # Очищаем строку от лишних пробелов
         date_str = date_str.strip()
@@ -262,27 +262,31 @@ def format_date_for_api(date_str):
         parsed_date = datetime.strptime(date_str, "%Y-%m-%d").replace(tzinfo=timezone.utc)
         current_date = datetime.now(timezone.utc)
         
+        # Для тарифа Hobbyist доступны данные только за последний месяц
+        # Проверяем, что запрашиваемая дата не старше 1 месяца
+        one_month_ago = current_date - timedelta(days=30)
+        
+        if parsed_date < one_month_ago:
+            log_and_print(
+                f"[WARNING] Дата {date_str} старше 1 месяца, это недоступно на тарифе Hobbyist. " +
+                f"Используем самую раннюю доступную дату: {one_month_ago.strftime('%Y-%m-%d')}", 
+                "warning"
+            )
+            parsed_date = one_month_ago
+        
         # Если дата в будущем, используем вчерашнюю дату
         if parsed_date > current_date:
             log_and_print(f"[WARNING] Дата {date_str} находится в будущем, используем вчерашнюю дату", "warning")
             parsed_date = current_date - timedelta(days=1)
         
-        # Проверяем, что дата не слишком старая (ограничения API могут варьироваться)
-        # CoinMarketCap обычно хранит данные не более нескольких лет
-        min_date = datetime(2013, 4, 28, tzinfo=timezone.utc)  # Примерно дата начала CoinMarketCap
-        if parsed_date < min_date:
-            log_and_print(f"[WARNING] Дата {date_str} слишком старая, используем минимальную доступную", "warning")
-            parsed_date = min_date
-        
         # Форматируем даты согласно документации API
-        # Для современного API часто используется ISO 8601
         date_str = parsed_date.strftime("%Y-%m-%d")
         
         return (date_str, date_str)
         
     except ValueError:
         log_and_print(f"[ERROR] Неверный формат даты '{date_str}'. Используйте формат YYYY-MM-DD", "error")
-        # В случае ошибки возвращаем вчерашнюю дату
+        # В случае ошибки возвращаем ближайшую доступную дату
         yesterday = (datetime.now(timezone.utc) - timedelta(days=1)).strftime("%Y-%m-%d")
         return (yesterday, yesterday)
 
@@ -904,7 +908,10 @@ async def main():
     start_time = time.time()  # Засекаем время начала выполнения
     
     try:
+        current_date = datetime.now().strftime("%Y-%m-%d")
         log_and_print("[INFO] Начало работы программы...")
+        log_and_print(f"[INFO] Текущая дата: {current_date}")
+        log_and_print("[INFO] Тариф Hobbyist позволяет запрашивать данные только за последний месяц")
 
         # Загрузка файла
         df = read_excel_file(CONFIG["input_file"])
@@ -935,22 +942,42 @@ async def main():
                     all_tokens = await get_valid_tokens(df, session)
                     random.shuffle(all_tokens)
                     
+                    # Предложим текущие даты с учетом ограничений тарифа
+                    current = datetime.now(timezone.utc)
+                    suggested_end = current - timedelta(days=1)  # вчера
+                    suggested_start = current - timedelta(days=7)  # неделю назад
+                    
+                    log_and_print(f"[INFO] Доступные даты: с {(current - timedelta(days=30)).strftime('%Y-%m-%d')} по {suggested_end.strftime('%Y-%m-%d')}")
+                    log_and_print(f"[INFO] Рекомендуемый период: с {suggested_start.strftime('%Y-%m-%d')} по {suggested_end.strftime('%Y-%m-%d')}")
+                    
                     # Запрашиваем даты для тестового запроса
                     while True:
-                        start_date_str = input("Введите начальную дату (YYYY-MM-DD): ").strip()
-                        end_date_str = input("Введите конечную дату (YYYY-MM-DD): ").strip()
+                        start_date_str = input(f"Введите начальную дату (YYYY-MM-DD) [рекомендуется: {suggested_start.strftime('%Y-%m-%d')}]: ").strip()
+                        if not start_date_str:  # Если пользователь не ввел дату, используем рекомендуемую
+                            start_date_str = suggested_start.strftime('%Y-%m-%d')
+                            log_and_print(f"[INFO] Используется рекомендуемая начальная дата: {start_date_str}")
+                            
+                        end_date_str = input(f"Введите конечную дату (YYYY-MM-DD) [рекомендуется: {suggested_end.strftime('%Y-%m-%d')}]: ").strip()
+                        if not end_date_str:  # Если пользователь не ввел дату, используем рекомендуемую
+                            end_date_str = suggested_end.strftime('%Y-%m-%d')
+                            log_and_print(f"[INFO] Используется рекомендуемая конечная дата: {end_date_str}")
                         
                         start_date = format_date_for_api(start_date_str)
                         end_date = format_date_for_api(end_date_str)
                         
                         if start_date and end_date:
+                            # Проверяем, что начальная дата не позже конечной
+                            if start_date[0] > end_date[0]:
+                                log_and_print("[ERROR] Начальная дата не может быть позже конечной", "error")
+                                continue
                             break
                         log_and_print("[ERROR] Неверный формат даты", "error")
 
                     # Запускаем тестовую обработку (до 5 успешных токенов)
                     log_and_print("[INFO] Запуск тестового запроса...")
+                    log_and_print(f"[INFO] Выбранный период: с {start_date[0]} по {end_date[0]}")
                     results, errors = await process_tokens_with_endpoint(
-                        all_tokens[:50], start_date[0], end_date[1], df, session, is_test=True
+                        all_tokens[:50], start_date[0], end_date[0], df, session, is_test=True
                     )
                     
                     # Сохраняем результаты теста
@@ -981,15 +1008,34 @@ async def main():
             if proceed != 'да':
                 return
 
+            # Предложим текущие даты с учетом ограничений тарифа
+            current = datetime.now(timezone.utc)
+            suggested_end = current - timedelta(days=1)  # вчера
+            suggested_start = current - timedelta(days=7)  # неделю назад
+            
+            log_and_print(f"[INFO] Доступные даты: с {(current - timedelta(days=30)).strftime('%Y-%m-%d')} по {suggested_end.strftime('%Y-%m-%d')}")
+            log_and_print(f"[INFO] Рекомендуемый период: с {suggested_start.strftime('%Y-%m-%d')} по {suggested_end.strftime('%Y-%m-%d')}")
+            
             # Запрашиваем даты для основного запроса
             while True:
-                start_date_str = input("Введите начальную дату (YYYY-MM-DD): ").strip()
-                end_date_str = input("Введите конечную дату (YYYY-MM-DD): ").strip()
+                start_date_str = input(f"Введите начальную дату (YYYY-MM-DD) [рекомендуется: {suggested_start.strftime('%Y-%m-%d')}]: ").strip()
+                if not start_date_str:  # Если пользователь не ввел дату, используем рекомендуемую
+                    start_date_str = suggested_start.strftime('%Y-%m-%d')
+                    log_and_print(f"[INFO] Используется рекомендуемая начальная дата: {start_date_str}")
+                    
+                end_date_str = input(f"Введите конечную дату (YYYY-MM-DD) [рекомендуется: {suggested_end.strftime('%Y-%m-%d')}]: ").strip()
+                if not end_date_str:  # Если пользователь не ввел дату, используем рекомендуемую
+                    end_date_str = suggested_end.strftime('%Y-%m-%d')
+                    log_and_print(f"[INFO] Используется рекомендуемая конечная дата: {end_date_str}")
                 
                 start_date = format_date_for_api(start_date_str)
                 end_date = format_date_for_api(end_date_str)
                 
                 if start_date and end_date:
+                    # Проверяем, что начальная дата не позже конечной
+                    if start_date[0] > end_date[0]:
+                        log_and_print("[ERROR] Начальная дата не может быть позже конечной", "error")
+                        continue
                     break
                 log_and_print("[ERROR] Неверный формат даты", "error")
 
@@ -1019,9 +1065,11 @@ async def main():
                               f"({estimated_time_min/60:.1f} часов)")
                 
                 log_and_print("[INFO] Запуск основного запроса...")
+                log_and_print(f"[INFO] Выбранный период: с {start_date[0]} по {end_date[0]}")
+                
                 # Запускаем обработку всех токенов с батчевыми запросами
                 results, errors = await process_tokens_with_endpoint(
-                    all_tokens, start_date[0], end_date[1], df, session, is_test=False
+                    all_tokens, start_date[0], end_date[0], df, session, is_test=False
                 )
                 
                 # Сохраняем результаты

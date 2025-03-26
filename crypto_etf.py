@@ -3,7 +3,7 @@ import aiohttp
 import pandas as pd
 import plotly.graph_objects as go
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from tqdm import tqdm
 import os
 import ssl
@@ -20,7 +20,7 @@ logging.basicConfig(
 CONFIG = {
     "max_requests_per_minute": 30,
     "batch_size": 50,
-    "input_file": r"C:\Users\Main\Pitonio\crypto_etf\category_downloader_new.xlsx",
+    "input_file": r"C:\Users\Main\Pitonio\crypto_etf\category_downloader_123.xlsx",
     "output_folder": r"C:\Users\Main\Pitonio\crypto_etf\results",
     "save_path": r"C:\Users\Main\Pitonio\crypto_etf"
 }
@@ -53,7 +53,8 @@ ANALYSIS_DATES = [
     ("2025-02-22", "2025-02-23"),
     ("2025-03-01", "2025-03-02"),
     ("2025-03-08", "2025-03-09"),
-    ("2025-03-15", "2025-03-16")
+    ("2025-03-15", "2025-03-16"),
+    ("2025-03-22", "2025-03-23")
 ]
 
 
@@ -86,7 +87,7 @@ class APIHandler:
                     data = await response.json()
                     print(f"API Response: {data}")  # Debug print
                     logging.info(f"API Response received: {data}")
-                    
+
                     if data.get("status", {}).get("error_code") == 0 and data.get("data"):
                         token_data = next(iter(data["data"].values()))
                         if isinstance(token_data, list):
@@ -96,7 +97,7 @@ class APIHandler:
                             "symbol": token_data["symbol"],
                             "name": token_data["name"]
                         }
-                    
+
                     error_message = data.get("status", {}).get("error_message", "Unknown error")
                     logging.warning(f"Token {query} not found. Error: {error_message}")
                     print(f"API Error: {error_message}")
@@ -119,7 +120,7 @@ class APIHandler:
             # Проверка корректности дат
             start_date = datetime.strptime(date_start, '%Y-%m-%d').date()
             end_date = datetime.strptime(date_end, '%Y-%m-%d').date()
-            
+
             if end_date < start_date:
                 logging.error(f"Дата окончания {date_end} меньше даты начала {date_start}")
                 return None
@@ -172,7 +173,7 @@ class DataProcessor:
     def __init__(self):
         # Базовая директория
         self.base_dir = r"C:\Users\Main\Pitonio\crypto_etf"
-        self.category_file = os.path.join(self.base_dir, "category_downloader_new.xlsx")
+        self.category_file = os.path.join(self.base_dir, "category_downloader_123.xlsx")
 
         # Динамическое получение списка result файлов
         self.result_files = self._get_result_files()
@@ -215,7 +216,7 @@ class DataProcessor:
 
             print(f"Начинаю загрузку файла категорий: {self.category_file}")
             logging.info(f"Начинаю загрузку файла категорий: {self.category_file}")
-            
+
             # Пробуем загрузить только нужные столбцы
             try:
                 print("Пробую загрузить только столбцы C и D...")
@@ -225,11 +226,11 @@ class DataProcessor:
                     usecols=[2, 3],  # Столбцы C и D
                     names=['Symbol', 'Category']  # Сразу задаем имена столбцов
                 )
-                
+
                 print(f"Файл успешно загружен")
                 print(f"Размер DataFrame: {self.categories_df.shape}")
                 print(f"Столбцы: {self.categories_df.columns.tolist()}")
-                
+
             except Exception as e:
                 print(f"Ошибка при загрузке файла: {str(e)}")
                 logging.error(f"Ошибка при загрузке файла: {str(e)}")
@@ -239,11 +240,11 @@ class DataProcessor:
             original_length = len(self.categories_df)
             self.categories_df = self.categories_df.dropna(subset=['Symbol', 'Category'])
             cleaned_length = len(self.categories_df)
-            
+
             print(f"Строк до очистки: {original_length}")
             print(f"Строк после очистки: {cleaned_length}")
             print(f"Удалено пустых строк: {original_length - cleaned_length}")
-            
+
             if not self.categories_df.empty:
                 print(f"Уникальные категории: {self.categories_df['Category'].unique().tolist()}")
                 print(f"Количество уникальных токенов: {len(self.categories_df['Symbol'].unique())}")
@@ -252,8 +253,9 @@ class DataProcessor:
             else:
                 raise ValueError("После очистки данных DataFrame пуст")
 
-            logging.info(f"Загружено {len(self.categories_df)} токенов из {len(self.categories_df['Category'].unique())} категорий")
-            
+            logging.info(
+                f"Загружено {len(self.categories_df)} токенов из {len(self.categories_df['Category'].unique())} категорий")
+
         except Exception as e:
             print(f"Ошибка загрузки категорий: {str(e)}")
             logging.error(f"Ошибка загрузки категорий: {str(e)}")
@@ -393,13 +395,15 @@ class DataProcessor:
             logging.error(f"Ошибка при обработке токенов: {e}")
             return None
 
-    def process_data(self):
-        """Обработка данных по категориям"""
+    def process_data(self, token_df: pd.DataFrame):
         try:
             # Проверяем загрузку категорий
             if self.categories_df is None or self.categories_df.empty:
                 logging.error("DataFrame категорий пуст или не инициализирован")
                 return pd.DataFrame()
+
+            # Получаем даты из данных токена
+            token_dates = pd.to_datetime(token_df['date']).dt.date.unique()
 
             # Получаем список всех файлов результатов
             results_folder = os.path.join(self.base_dir, "results")
@@ -407,69 +411,139 @@ class DataProcessor:
                 logging.error(f"Папка с результатами не найдена: {results_folder}")
                 return pd.DataFrame()
 
-            result_files = [f for f in os.listdir(results_folder) if f.startswith('result_') and f.endswith('.xlsx')]
-            result_files.sort(key=lambda x: re.findall(r'\d{4}-\d{2}-\d{2}', x)[0])
+            result_files = sorted([f for f in os.listdir(results_folder)
+                                   if f.startswith('result_') and f.endswith('.xlsx')])
 
             if not result_files:
                 logging.error("Файлы результатов не найдены")
                 return pd.DataFrame()
 
-            print(f"\nОбработка {len(result_files)} файлов результатов...")
-
             all_results = []
             categories = self.categories_df['Category'].unique()
-            
+
+            def clean_numeric_value(value):
+                try:
+                    if pd.isna(value):
+                        return None
+                    if isinstance(value, (int, float)):
+                        return float(value)
+                    if isinstance(value, str):
+                        # Удаляем суффиксы и пробелы
+                        value = value.strip().upper()
+                        multiplier = 1
+                        if 'B' in value:
+                            multiplier = 1e9
+                            value = value.replace('B', '')
+                        elif 'M' in value:
+                            multiplier = 1e6
+                            value = value.replace('M', '')
+                        elif 'K' in value:
+                            multiplier = 1e3
+                            value = value.replace('K', '')
+
+                        # Удаляем запятые и лишние точки
+                        value = value.replace(',', '')
+                        if value.count('.') > 1:
+                            parts = value.split('.')
+                            value = ''.join(parts[:-1]) + '.' + parts[-1]
+
+                        try:
+                            return float(value) * multiplier
+                        except ValueError:
+                            return None
+                    return None
+                except Exception:
+                    return None
+
             for result_file in result_files:
                 try:
                     file_path = os.path.join(results_folder, result_file)
                     print(f"\nОбработка файла: {result_file}")
-                    
-                    # Извлекаем дату из имени файла (берем дату окончания периода)
+
+                    # Извлекаем дату из имени файла
                     end_date_match = re.search(r'to_(\d{4}-\d{2}-\d{2})', result_file)
                     if not end_date_match:
-                        print(f"Пропуск файла {result_file}: некорректное имя")
+                        print(f"Пропуск файла {result_file}: не удалось извлечь дату")
                         continue
-                    
-                    file_date = end_date_match.group(1)
-                    
+
+                    file_date = datetime.strptime(end_date_match.group(1), '%Y-%m-%d').date()
+
                     # Загружаем данные из файла results
-                    df_results = pd.read_excel(
-                        file_path,
-                        usecols=['Symbol', 'Price (USD)', 'Market Cap']
-                    )
-                    
-                    print(f"Загружено {len(df_results)} записей")
-                    
+                    try:
+                        df_results = pd.read_excel(file_path)
+                        print(f"Столбцы файла: {df_results.columns.tolist()}")
+                        print(f"Количество строк до обработки: {len(df_results)}")
+
+                        # Унификация названий столбцов
+                        if 'Market Cap (USD)' in df_results.columns:
+                            df_results = df_results.rename(columns={'Market Cap (USD)': 'Market Cap'})
+
+                        # Очистка данных
+                        df_results['Market Cap'] = df_results['Market Cap'].apply(clean_numeric_value)
+                        df_results['Price'] = df_results['Price (USD)'].apply(clean_numeric_value)
+
+                        # Удаляем только строки с отсутствующими или нулевыми данными
+                        df_results = df_results.dropna(subset=['Market Cap', 'Price'])
+                        df_results = df_results[
+                            (df_results['Price'] > 0) & 
+                            (df_results['Market Cap'] > 0)
+                        ]
+
+                        # Удаляем дубликаты
+                        df_results = df_results.drop_duplicates(subset=['Symbol'], keep='last')
+
+                        print(f"Количество строк после базовой очистки: {len(df_results)}")
+
+                        # Очистка выбросов
+                        price_mean = df_results['Price'].mean()
+                        price_std = df_results['Price'].std()
+                        market_cap_mean = df_results['Market Cap'].mean()
+                        market_cap_std = df_results['Market Cap'].std()
+
+                        df_results = df_results[
+                            (df_results['Price'] <= price_mean + 3 * price_std) &
+                            (df_results['Price'] >= price_mean - 3 * price_std) &
+                            (df_results['Market Cap'] <= market_cap_mean + 3 * market_cap_std) &
+                            (df_results['Market Cap'] >= market_cap_mean - 3 * market_cap_std)
+                        ]
+
+                        print(f"Количество строк после очистки выбросов: {len(df_results)}")
+
+                    except Exception as e:
+                        print(f"Ошибка при обработке файла {result_file}: {e}")
+                        continue
+
                     # Обрабатываем каждую категорию
                     for category in categories:
                         # Получаем список токенов для текущей категории
                         category_tokens = set(self.categories_df[
                             self.categories_df['Category'] == category
                         ]['Symbol'].tolist())
-                        
-                        # Фильтруем данные только для токенов этой категории
+
+                        # Фильтруем данные для токенов этой категории
                         category_data = df_results[
                             df_results['Symbol'].isin(category_tokens)
-                        ]
-                        
+                        ].copy()
+
                         if not category_data.empty:
-                            # Рассчитываем средние значения для категории
-                            avg_price = category_data['Price (USD)'].mean()
-                            avg_market_cap = category_data['Market Cap'].mean()
-                            token_count = len(category_data)
-                            
+                            # Рассчитываем взвешенную по капитализации среднюю цену
+                            total_market_cap = category_data['Market Cap'].sum()
+                            weighted_price = (
+                                (category_data['Price'] * category_data['Market Cap']).sum() 
+                                / total_market_cap
+                            )
+
+                            avg_price = category_data['Price'].median()
+                            avg_market_cap = category_data['Market Cap'].median()
+
                             all_results.append({
                                 'Category': category,
                                 'Date': file_date,
-                                'Price': avg_price,
-                                'MarketCap': avg_market_cap,
-                                'TokenCount': token_count,
+                                'Price': weighted_price,
+                                'MarketCap': total_market_cap,
+                                'TokenCount': len(category_data),
                                 'TotalTokens': len(category_tokens)
                             })
-                            
-                            print(f"Категория {category}: {token_count} токенов из {len(category_tokens)}")
-                        else:
-                            print(f"Нет данных для категории {category}")
 
                 except Exception as e:
                     print(f"Ошибка при обработке файла {result_file}: {e}")
@@ -478,7 +552,7 @@ class DataProcessor:
 
             # Создаем DataFrame из результатов
             results_df = pd.DataFrame(all_results)
-            
+
             if results_df.empty:
                 logging.warning("Нет данных после обработки")
                 return pd.DataFrame()
@@ -486,12 +560,9 @@ class DataProcessor:
             # Сортируем результаты
             results_df['Date'] = pd.to_datetime(results_df['Date'])
             results_df = results_df.sort_values(['Date', 'Category'])
-            
-            print(f"\nИтоги обработки:")
-            print(f"- Обработано файлов: {len(result_files)}")
-            print(f"- Категорий: {len(results_df['Category'].unique())}")
-            print(f"- Всего записей: {len(results_df)}")
-            print(f"- Диапазон дат: с {results_df['Date'].min()} по {results_df['Date'].max()}")
+
+            # Оставляем только те даты, которые есть в токене
+            results_df = results_df[results_df['Date'].dt.date.isin(token_dates)]
 
             return results_df
 
@@ -554,25 +625,12 @@ class Visualizer:
         }
 
     def create_combined_plot(self, categories_df: pd.DataFrame, token_df: pd.DataFrame, token_symbol: str):
-        """Creating a combined plot"""
+        """Creating a combined plot with synchronized dates"""
         fig = go.Figure()
 
-        # Normalize dates and ensure they are datetime
+        # Ensure dates are datetime
         token_df['date'] = pd.to_datetime(token_df['date'])
         categories_df['Date'] = pd.to_datetime(categories_df['Date'])
-
-        # Ensure we only use dates that exist in both datasets
-        common_dates = set(token_df['date'].dt.strftime('%Y-%m-%d')).intersection(
-            set(categories_df['Date'].dt.strftime('%Y-%m-%d'))
-        )
-        
-        if not common_dates:
-            print("Error: No common dates between token and categories data")
-            return None
-
-        # Filter data to only include common dates
-        token_df = token_df[token_df['date'].dt.strftime('%Y-%m-%d').isin(common_dates)].copy()
-        categories_df = categories_df[categories_df['Date'].dt.strftime('%Y-%m-%d').isin(common_dates)].copy()
 
         # Sort both dataframes by date
         token_df = token_df.sort_values('date')
@@ -587,7 +645,7 @@ class Visualizer:
 
         # Add token line
         token_change = token_df['normalized_price'].iloc[-1]
-        
+
         fig.add_trace(go.Scatter(
             x=token_df['date'],
             y=token_df['normalized_price'],
@@ -597,11 +655,11 @@ class Visualizer:
             marker=dict(size=8),
             visible=True,
             hovertemplate=(
-                f"<b>{token_symbol}</b><br>" +
-                "Date: %{x}<br>" +
-                "Change: %{y:.2f}%<br>" +
-                "Price: ${:,.4f}<br>".format(token_df['price'].iloc[-1]) +
-                "<extra></extra>"
+                    f"<b>{token_symbol}</b><br>" +
+                    "Date: %{x}<br>" +
+                    "Change: %{y:.2f}%<br>" +
+                    "Price: ${:,.4f}<br>".format(token_df['price'].iloc[-1]) +
+                    "<extra></extra>"
             )
         ))
 
@@ -611,26 +669,30 @@ class Visualizer:
 
         for idx, category in enumerate(categories):
             category_data = categories_df[categories_df['Category'] == category].copy()
-            
-            if len(category_data) < 2:  # Skip categories with insufficient data
+
+            if len(category_data) < 2:
                 print(f"Skipping category {category}: insufficient data")
                 continue
 
-            # Ensure category data is properly sorted and aligned with token dates
-            category_data = category_data.sort_values('Date')
-            
+            # Ensure category data aligns with token dates
+            category_data = category_data[category_data['Date'].isin(token_df['date'])]
+
+            if len(category_data) < 2:
+                print(f"Skipping category {category}: insufficient aligned data")
+                continue
+
             # Base price for category
             category_base_price = category_data['Price'].iloc[0]
-            
+
             # Normalize category prices
-            category_data['normalized_price'] = ((category_data['Price'] - category_base_price) / category_base_price) * 100
-            
+            category_data['normalized_price'] = ((category_data[
+                                                      'Price'] - category_base_price) / category_base_price) * 100
+
             # Calculate category price change
             category_change = category_data['normalized_price'].iloc[-1]
-            
+
             color_idx = (idx % 10) + 1
-            
-            # Add category line
+
             fig.add_trace(go.Scatter(
                 x=category_data['Date'],
                 y=category_data['normalized_price'],
@@ -644,16 +706,16 @@ class Visualizer:
                     size=6,
                     color=self.dynamic_colors[color_idx]
                 ),
-                visible='legendonly',  # Hidden by default
+                visible='legendonly',
                 hovertemplate=(
-                    f"<b>{category}</b><br>" +
-                    "Date: %{x}<br>" +
-                    "Change: %{y:.2f}%<br>" +
-                    "Tokens: {:,d}<br>".format(category_data['TokenCount'].iloc[-1]) +
-                    "<extra></extra>"
+                        f"<b>{category}</b><br>" +
+                        "Date: %{x}<br>" +
+                        "Change: %{y:.2f}%<br>" +
+                        "Tokens: {:,d}<br>".format(category_data['TokenCount'].iloc[-1]) +
+                        "<extra></extra>"
                 )
             ))
-            
+
             print(f"Category {category}: change {category_change:.2f}%")
 
         # Configure layout
@@ -999,7 +1061,7 @@ async def main():
             for start_date, end_date in ANALYSIS_DATES:
                 retry_count = 0
                 period_data = None
-                
+
                 while retry_count < MAX_RETRIES:
                     try:
                         await asyncio.sleep(1)  # Небольшая задержка между запросами
@@ -1018,11 +1080,12 @@ async def main():
                         retry_count += 1
                         if retry_count < MAX_RETRIES:
                             print(f"Повторная попытка {retry_count + 1} из {MAX_RETRIES}")
-                
+
                 if not period_data and retry_count >= MAX_RETRIES:
-                    print(f"\nНе удалось получить данные за период {start_date} - {end_date} после {MAX_RETRIES} попыток")
+                    print(
+                        f"\nНе удалось получить данные за период {start_date} - {end_date} после {MAX_RETRIES} попыток")
                     retry_decision = input("Повторить попытки для этого периода? (y/n): ").lower()
-                    
+
                     while retry_decision == 'y':
                         retry_count = 0
                         while retry_count < MAX_RETRIES:
@@ -1041,18 +1104,18 @@ async def main():
                             except Exception as e:
                                 print(f"\nОшибка при получении данных: {e}")
                                 retry_count += 1
-                        
+
                         if not period_data:
                             retry_decision = input("Повторить попытки снова? (y/n): ").lower()
                         else:
                             break
-                
+
                 if period_data:
                     all_historical_data.extend(period_data)
                     print(f"\nУспешно получены данные за период {start_date} - {end_date}")
                 else:
                     print(f"\nПропускаем период {start_date} - {end_date}")
-                
+
                 pbar.update(1)
 
         if not all_historical_data:
@@ -1071,7 +1134,7 @@ async def main():
 
         # === Обработка категорий ===
         print("\n=== Обработка данных категорий ===")
-        categories_df = data_processor.process_data()
+        categories_df = data_processor.process_data(token_df)
 
         # Проверяем данные категорий
         if categories_df.empty:

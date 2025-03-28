@@ -34,7 +34,7 @@ file_handler.setFormatter(file_formatter)
 logger.addHandler(file_handler)
 
 # API ключ DappRadar (вставьте свой ключ здесь)
-API_KEY = "WBWP0lkNFF7vudZMX9oXq84CPgRKvSGZ91S42NUB"  # Замените на реальный ключ
+API_KEY = "123"  # Замените на реальный ключ
 
 # Настройка базового URL API и заголовков
 BASE_URL = "https://apis-portal.dappradar.com/api"

@@ -150,8 +150,8 @@ def save_to_excel(tokens, output_dir):
     logging.info(f"Результаты сохранены в {filepath}")
 
 def main():
-    api_key = "mx0vglTpKBUYY9Omv1"
-    api_secret = "95e8cf3028fd418b978cf87924f99e14"
+    api_key = "123"
+    api_secret = "123"
     
     mexc = MEXCAPI(api_key, api_secret)
     

@@ -16,7 +16,7 @@ from botocore.client import Config
 from typing import Tuple, List, Dict, Any, Optional
 
 # Константы для S3
-S3_URL = 'https://s3.timeweb.cloud'
+S3_URL = 'h'
 S3_BUCKET_NAME = '3'
 S3_ACCESS_KEY = 'O'
 S3_SECRET_ACCESS_KEY = 'H'

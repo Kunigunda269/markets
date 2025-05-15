@@ -17,9 +17,9 @@ from typing import Tuple, List, Dict, Any, Optional
 
 # Константы для S3
 S3_URL = 'https://s3.timeweb.cloud'
-S3_BUCKET_NAME = '37490a69-d05d749b-9e56-4c42-8f48-330dba599d42'
-S3_ACCESS_KEY = 'OQKA5TWA7KJIETLOB5YV'
-S3_SECRET_ACCESS_KEY = 'HoyVXIx11sz0ny2anPDarBpl76NOcJVb4BYtKv48'
+S3_BUCKET_NAME = '3'
+S3_ACCESS_KEY = 'O'
+S3_SECRET_ACCESS_KEY = 'H'
 
 # Функция загрузки конфигурации
 def load_config():
@@ -78,7 +78,7 @@ os.makedirs(CONFIG["output_folder"], exist_ok=True)
 os.makedirs(CONFIG["save_path"], exist_ok=True)
 
 # Конфигурация API
-API_KEY = "831812bd-1186-43d4-b0d3-b71f0d61074e"
+API_KEY = "8"
 BASE_URL = CONFIG.get("api_base_url", "https://pro-api.coinmarketcap.com/v2")
 HEADERS = {
     "X-CMC_PRO_API_KEY": API_KEY,

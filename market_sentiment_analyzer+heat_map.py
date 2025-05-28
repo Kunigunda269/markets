@@ -20,7 +20,7 @@ if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 # === CONFIGURATION ===
-API_KEY = "831812bd-1186-43d4-b0d3-b71f0d61074e"
+API_KEY = "123"
 HEADERS = {"X-CMC_PRO_API_KEY": API_KEY}
 BASE_URL = "https://pro-api.coinmarketcap.com"
 OUTPUT_FOLDER = r"C:\Users\Main\Pitonio\crypto_etf"

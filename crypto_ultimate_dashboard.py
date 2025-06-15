@@ -1112,7 +1112,7 @@ async def main():
         
         # Check for critical errors
         if 'error' in summary:
-            print(f"❌ Critical Error: {summary['error']}")
+            print(f" Critical Error: {summary['error']}")
             return
         
         # Output enhanced summary
@@ -1132,16 +1132,16 @@ async def main():
         
         print(f"\n=== Enhanced Analysis Components ===")
         components_info = {
-            'volume_efficiency': "📊 Volume Efficiency - поиск недооцененных активов",
-            'stablecoin_dominance': "💰 Stablecoin Dominance - анализ стейблкоин экосистемы",
-            'market_microstructure': "⚡ Market Microstructure - ликвидность и спреды", 
-            'volatility_surface': "🌊 Volatility Surface - 3D карта волатильности",
-            'correlation_matrix': "🔗 Correlation Matrix - взаимосвязи между активами"
+            'volume_efficiency': " Volume Efficiency - поиск недооцененных активов",
+            'stablecoin_dominance': " Stablecoin Dominance - анализ стейблкоин экосистемы",
+            'market_microstructure': " Market Microstructure - ликвидность и спреды", 
+            'volatility_surface': " Volatility Surface - 3D карта волатильности",
+            'correlation_matrix': " Correlation Matrix - взаимосвязи между активами"
         }
         
         for component in summary.get('analysis_components', []):
             if component in components_info:
-                status = "✅" if component in all_figures else "❌"
+                status = "_" if component in all_figures else "❌"
                 print(f"{status} {components_info[component]}")
         
         print(f"\n=== NEW ENHANCED FEATURES ===")
@@ -1153,7 +1153,7 @@ async def main():
         print("✅ Детальная статистика выполнения")
         
         if summary['failed_analyses'] > 0:
-            print(f"\n⚠️  {summary['failed_analyses']} analysis(es) failed - check logs for details")
+            print(f"\n {summary['failed_analyses']} analysis(es) failed - check logs for details")
         
         print("\n=== Enhanced Analysis Complete ===")
         

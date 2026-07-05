@@ -17,6 +17,20 @@ import socket
 import tempfile
 
 
+def _load_dotenv_files() -> None:
+    """Load .env from repo root and cwd (best-effort; optional python-dotenv)."""
+    try:
+        from dotenv import load_dotenv
+    except ImportError:
+        return
+    repo_root = Path(__file__).resolve().parent.parent
+    load_dotenv(repo_root / ".env")
+    load_dotenv(Path.cwd() / ".env")
+
+
+_load_dotenv_files()
+
+
 @dataclass
 class StockMetrics:
     """Класс для хранения метрик акции"""
@@ -81,12 +95,11 @@ class GuruFocusAPI:
                  cache_expiry_hours: int = 24):
         self.logger = setup_logging()
 
-        # Используем переданный API ключ или ваш дефолтный
+        # API key: explicit arg > GURUFOCUS_API_KEY from .env / environment
         if api_key:
             self.api_key = api_key
         else:
-            default_key = ("123")
-            self.api_key = default_key
+            self.api_key = os.getenv("GURUFOCUS_API_KEY", "")
 
         self.cache_dir = Path("cache")
         self.cache_dir.mkdir(exist_ok=True)

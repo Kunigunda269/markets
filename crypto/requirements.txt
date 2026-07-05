@@ -1,0 +1,10 @@
+aiohttp
+beautifulsoup4
+boto3
+numpy
+openpyxl
+pandas
+plotly
+requests
+scipy
+tqdm

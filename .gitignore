@@ -1,0 +1,24 @@
+# Environment / secrets
+.env
+*.key
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.ipynb_checkpoints/
+
+# Local data & generated output
+output/
+data/
+*.xlsx
+*.csv
+*.html
+*.log
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
